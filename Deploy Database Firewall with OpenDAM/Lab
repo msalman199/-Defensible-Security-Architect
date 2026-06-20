@@ -1,0 +1,622 @@
+Deploy Database Firewall with OpenDAM
+Objectives
+By the end of this lab, students will be able to:
+
+Install and configure a database activity monitoring system
+Implement database access logging and monitoring
+Create Python scripts to analyze database activity patterns
+Build automated alerting systems for suspicious database access
+Configure firewall rules to protect database communications
+Prerequisites
+Basic Linux command line operations
+Fundamental SQL and database concepts
+Basic Python programming skills
+Understanding of network security principles
+Lab Environment
+Al Nafi provides ready-to-use Linux-based cloud machines for this lab. Click Start Lab to access your pre-configured environment.
+
+Your lab machine includes:
+
+Ubuntu 22.04 LTS
+Python 3.10+
+MySQL Server
+Required development tools
+Task 1: Install and Configure Database Monitoring
+Step 1.1: Prepare the Environment
+Update system and install dependencies:
+
+# Update packages
+sudo apt update && sudo apt upgrade -y
+
+# Install required packages
+sudo apt install -y python3 python3-pip mysql-server mysql-client
+sudo apt install -y iptables-persistent netfilter-persistent
+
+# Start MySQL
+sudo systemctl start mysql
+sudo systemctl enable mysql
+Step 1.2: Secure MySQL Installation
+Run MySQL secure installation:
+
+sudo mysql_secure_installation
+Configuration settings:
+
+Root password: SecurePass123!
+Remove anonymous users: Y
+Disallow root login remotely: Y
+Remove test database: Y
+Reload privileges: Y
+Step 1.3: Create Sample Database
+Connect to MySQL and create test database:
+
+mysql -u root -p
+Execute SQL commands:
+
+CREATE DATABASE company_db;
+USE company_db;
+
+CREATE TABLE employees (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100),
+    email VARCHAR(100),
+    department VARCHAR(50),
+    salary DECIMAL(10,2),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE access_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_name VARCHAR(50),
+    action VARCHAR(100),
+    table_name VARCHAR(50),
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ip_address VARCHAR(15)
+);
+
+INSERT INTO employees (name, email, department, salary) VALUES
+('John Doe', 'john@company.com', 'IT', 75000.00),
+('Jane Smith', 'jane@company.com', 'HR', 65000.00);
+
+CREATE USER 'app_user'@'localhost' IDENTIFIED BY 'AppPass123!';
+CREATE USER 'readonly_user'@'localhost' IDENTIFIED BY 'ReadPass123!';
+
+GRANT SELECT, INSERT, UPDATE ON company_db.* TO 'app_user'@'localhost';
+GRANT SELECT ON company_db.* TO 'readonly_user'@'localhost';
+
+FLUSH PRIVILEGES;
+EXIT;
+Step 1.4: Setup OpenDAM Directory Structure
+Create monitoring system directories:
+
+sudo mkdir -p /opt/opendam/{bin,config,logs,scripts}
+sudo chown -R $USER:$USER /opt/opendam
+
+cat > /opt/opendam/config/opendam.conf << 'EOF'
+[database]
+host = localhost
+port = 3306
+database = company_db
+monitor_user = root
+monitor_password = SecurePass123!
+
+[monitoring]
+log_file = /opt/opendam/logs/activity.log
+alert_threshold = 5
+suspicious_patterns = DROP,DELETE,TRUNCATE,ALTER USER,GRANT ALL
+
+[alerts]
+syslog_enabled = true
+alert_log = /opt/opendam/logs/alerts.log
+EOF
+Step 1.5: Install Python Dependencies
+pip3 install mysql-connector-python configparser
+
+cat > /opt/opendam/requirements.txt << 'EOF'
+mysql-connector-python==8.0.33
+configparser==5.3.0
+pandas==1.5.3
+EOF
+Task 2: Create Database Activity Monitor
+Step 2.1: Build Core Monitoring Script
+Create the main monitoring script template:
+
+cat > /opt/opendam/bin/opendam_monitor.py << 'EOF'
+#!/usr/bin/env python3
+
+import mysql.connector
+import configparser
+import logging
+import time
+import json
+from datetime import datetime
+
+class OpenDAMMonitor:
+    def __init__(self, config_file):
+        """
+        Initialize the database activity monitor.
+        
+        Args:
+            config_file: Path to configuration file
+        """
+        self.config = configparser.ConfigParser()
+        self.config.read(config_file)
+        
+        # TODO: Setup logging configuration
+        # TODO: Initialize database connection parameters
+        # TODO: Load monitoring settings from config
+        
+    def connect_database(self):
+        """
+        Establish database connection.
+        
+        Returns:
+            MySQL connection object or None
+        """
+        # TODO: Implement database connection
+        # TODO: Handle connection errors
+        pass
+    
+    def log_activity(self, user, action, table_name, ip_address):
+        """
+        Log database activity to access_logs table.
+        
+        Args:
+            user: Database user name
+            action: SQL action performed
+            table_name: Target table name
+            ip_address: Client IP address
+        """
+        # TODO: Insert activity record into access_logs
+        # TODO: Handle logging errors
+        pass
+    
+    def check_suspicious_activity(self, query):
+        """
+        Check if query matches suspicious patterns.
+        
+        Args:
+            query: SQL query string
+            
+        Returns:
+            Boolean indicating if query is suspicious
+        """
+        # TODO: Compare query against suspicious patterns
+        # TODO: Return True if pattern matches
+        pass
+    
+    def generate_alert(self, alert_type, details):
+        """
+        Generate security alert.
+        
+        Args:
+            alert_type: Type of alert
+            details: Alert details
+        """
+        # TODO: Create alert data structure
+        # TODO: Write to alert log file
+        # TODO: Send to syslog if enabled
+        pass
+    
+    def monitor_connections(self):
+        """
+        Monitor active database connections and queries.
+        """
+        # TODO: Execute SHOW PROCESSLIST
+        # TODO: Check each process for suspicious activity
+        # TODO: Log activities and generate alerts
+        pass
+    
+    def run_monitoring_cycle(self):
+        """
+        Execute one complete monitoring cycle.
+        """
+        # TODO: Call monitor_connections()
+        # TODO: Check for failed logins
+        # TODO: Log cycle completion
+        pass
+
+def main():
+    monitor = OpenDAMMonitor('/opt/opendam/config/opendam.conf')
+    
+    print("OpenDAM Database Activity Monitor Started")
+    
+    # TODO: Implement monitoring loop
+    # TODO: Run monitoring cycle every 10 seconds
+    # TODO: Handle keyboard interrupt gracefully
+
+if __name__ == "__main__":
+    main()
+EOF
+
+chmod +x /opt/opendam/bin/opendam_monitor.py
+Step 2.2: Test the Monitor
+Start the monitoring system:
+
+# Run in background
+python3 /opt/opendam/bin/opendam_monitor.py &
+
+# Check logs
+tail -f /opt/opendam/logs/activity.log
+Generate test activity:
+
+# Connect as different users
+mysql -u app_user -pAppPass123! company_db -e "SELECT * FROM employees;"
+mysql -u readonly_user -pReadPass123! company_db -e "SELECT * FROM employees;"
+Task 3: Develop Log Analysis Scripts
+Step 3.1: Create Log Analyzer
+Build comprehensive log analysis tool:
+
+cat > /opt/opendam/scripts/log_analyzer.py << 'EOF'
+#!/usr/bin/env python3
+
+import mysql.connector
+import configparser
+from datetime import datetime, timedelta
+from collections import Counter
+import argparse
+
+class DatabaseLogAnalyzer:
+    def __init__(self, config_file):
+        """
+        Initialize log analyzer.
+        
+        Args:
+            config_file: Path to configuration file
+        """
+        # TODO: Load configuration
+        # TODO: Setup database connection parameters
+        pass
+    
+    def get_activity_logs(self, hours=24):
+        """
+        Retrieve activity logs from database.
+        
+        Args:
+            hours: Number of hours to retrieve
+            
+        Returns:
+            List of log entries
+        """
+        # TODO: Connect to database
+        # TODO: Query access_logs table
+        # TODO: Filter by time range
+        # TODO: Return results
+        pass
+    
+    def analyze_user_activity(self, logs):
+        """
+        Analyze user activity patterns.
+        
+        Args:
+            logs: List of log entries
+        """
+        # TODO: Count activities per user
+        # TODO: Analyze action types
+        # TODO: Identify most accessed tables
+        # TODO: Print summary report
+        pass
+    
+    def analyze_time_patterns(self, logs):
+        """
+        Analyze temporal access patterns.
+        
+        Args:
+            logs: List of log entries
+        """
+        # TODO: Group activities by hour
+        # TODO: Identify peak usage times
+        # TODO: Display hourly distribution
+        pass
+    
+    def detect_anomalies(self, logs):
+        """
+        Detect anomalous activity patterns.
+        
+        Args:
+            logs: List of log entries
+        """
+        # TODO: Calculate average activity per user
+        # TODO: Identify users exceeding threshold
+        # TODO: Check for suspicious IP patterns
+        # TODO: Report anomalies
+        pass
+    
+    def generate_security_report(self, logs):
+        """
+        Generate comprehensive security report.
+        
+        Args:
+            logs: List of log entries
+        """
+        # TODO: Print report header
+        # TODO: Call analysis functions
+        # TODO: Provide security recommendations
+        pass
+
+def main():
+    parser = argparse.ArgumentParser(description='Database Activity Log Analyzer')
+    parser.add_argument('--hours', type=int, default=24)
+    parser.add_argument('--config', default='/opt/opendam/config/opendam.conf')
+    
+    args = parser.parse_args()
+    
+    # TODO: Create analyzer instance
+    # TODO: Retrieve logs
+    # TODO: Generate report
+
+if __name__ == "__main__":
+    main()
+EOF
+
+chmod +x /opt/opendam/scripts/log_analyzer.py
+Step 3.2: Create Alert Analyzer
+Build alert analysis tool:
+
+cat > /opt/opendam/scripts/alert_analyzer.py << 'EOF'
+#!/usr/bin/env python3
+
+import json
+from datetime import datetime, timedelta
+from collections import Counter, defaultdict
+import argparse
+
+class AlertAnalyzer:
+    def __init__(self, alert_log_file):
+        """
+        Initialize alert analyzer.
+        
+        Args:
+            alert_log_file: Path to alert log file
+        """
+        # TODO: Store log file path
+        # TODO: Initialize alerts list
+        # TODO: Load alerts from file
+        pass
+    
+    def load_alerts(self):
+        """
+        Load alerts from log file.
+        """
+        # TODO: Read alert log file
+        # TODO: Parse JSON entries
+        # TODO: Convert timestamps
+        # TODO: Store in alerts list
+        pass
+    
+    def analyze_alert_types(self, alerts):
+        """
+        Analyze distribution of alert types.
+        
+        Args:
+            alerts: List of alert entries
+        """
+        # TODO: Count alerts by type
+        # TODO: Display summary
+        pass
+    
+    def analyze_alert_timeline(self, alerts):
+        """
+        Analyze temporal distribution of alerts.
+        
+        Args:
+            alerts: List of alert entries
+        """
+        # TODO: Group alerts by hour
+        # TODO: Display timeline visualization
+        pass
+    
+    def detect_alert_patterns(self, alerts):
+        """
+        Detect patterns in alert data.
+        
+        Args:
+            alerts: List of alert entries
+        """
+        # TODO: Identify alert clusters
+        # TODO: Find repeated alert types
+        # TODO: Report patterns
+        pass
+    
+    def generate_alert_summary(self, hours=24):
+        """
+        Generate alert summary report.
+        
+        Args:
+            hours: Time range for analysis
+        """
+        # TODO: Filter alerts by time
+        # TODO: Call analysis functions
+        # TODO: Provide recommendations
+        pass
+
+def main():
+    parser = argparse.ArgumentParser(description='Database Alert Analyzer')
+    parser.add_argument('--hours', type=int, default=24)
+    parser.add_argument('--alert-log', default='/opt/opendam/logs/alerts.log')
+    
+    args = parser.parse_args()
+    
+    # TODO: Create analyzer instance
+    # TODO: Generate summary report
+
+if __name__ == "__main__":
+    main()
+EOF
+
+chmod +x /opt/opendam/scripts/alert_analyzer.py
+Task 4: Implement Automated Alerting System
+Step 4.1: Build Alert System
+Create automated alert system:
+
+cat > /opt/opendam/scripts/alert_system.py << 'EOF'
+#!/usr/bin/env python3
+
+import mysql.connector
+import configparser
+import subprocess
+import json
+from datetime import datetime, timedelta
+from collections import defaultdict
+
+class DatabaseAlertSystem:
+    def __init__(self, config_file):
+        """
+        Initialize alert system.
+        
+        Args:
+            config_file: Path to configuration file
+        """
+        # TODO: Load configuration
+        # TODO: Setup database connection
+        # TODO: Define alert thresholds
+        # TODO: Initialize alert history tracking
+        pass
+    
+    def should_send_alert(self, alert_type):
+        """
+        Check if alert should be sent based on cooldown.
+        
+        Args:
+            alert_type: Type of alert
+            
+        Returns:
+            Boolean indicating if alert should be sent
+        """
+        # TODO: Check alert history
+        # TODO: Implement cooldown logic
+        # TODO: Update alert history
+        pass
+    
+    def check_failed_logins(self):
+        """
+        Monitor for excessive failed login attempts.
+        
+        Returns:
+            Boolean indicating if threshold exceeded
+        """
+        # TODO: Read MySQL error log
+        # TODO: Count failed login attempts
+        # TODO: Generate alert if threshold exceeded
+        pass
+    
+    def check_suspicious_queries(self):
+        """
+        Monitor for suspicious database queries.
+        
+        Returns:
+            Boolean indicating if suspicious activity detected
+        """
+        # TODO: Query access_logs table
+        # TODO: Check for suspicious patterns
+        # TODO: Generate alert if threshold exceeded
+        pass
+    
+    def check_unusual_access_times(self):
+        """
+        Monitor for database access during unusual hours.
+        
+        Returns:
+            Boolean indicating if unusual access detected
+        """
+        # TODO: Query logs for off-hours activity
+        # TODO: Generate alert if activity detected
+        pass
+    
+    def check_connection_flood(self):
+        """
+        Monitor for connection flooding attacks.
+        
+        Returns:
+            Boolean indicating if flood detected
+        """
+        # TODO: Count active connections
+        # TODO: Check against threshold
+        # TODO: Generate alert if exceeded
+        pass
+    
+    def run_alert_checks(self):
+        """
+        Execute all alert checks.
+        """
+        # TODO: Call all check functions
+        # TODO: Log results
+        pass
+
+def main():
+    alert_system = DatabaseAlertSystem('/opt/opendam/config/opendam.conf')
+    
+    # TODO: Implement monitoring loop
+    # TODO: Run checks periodically
+    # TODO: Handle interrupts
+
+if __name__ == "__main__":
+    main()
+EOF
+
+chmod +x /opt/opendam/scripts/alert_system.py
+Step 4.2: Configure Firewall Rules
+Implement database firewall protection:
+
+# Allow MySQL from localhost only
+sudo iptables -A INPUT -p tcp --dport 3306 -s 127.0.0.1 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 3306 -j DROP
+
+# Save rules
+sudo netfilter-persistent save
+
+# View rules
+sudo iptables -L -n -v
+Step 4.3: Create Systemd Service
+Setup monitoring as a service:
+
+sudo cat > /etc/systemd/system/opendam.service << 'EOF'
+[Unit]
+Description=OpenDAM Database Activity Monitor
+After=mysql.service
+
+[Service]
+Type=simple
+User=ubuntu
+ExecStart=/usr/bin/python3 /opt/opendam/bin/opendam_monitor.py
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable opendam
+sudo systemctl start opendam
+Expected Outcomes
+After completing this lab, you should have:
+
+Functional database activity monitoring system
+Automated logging of all database access
+Python scripts for log analysis and pattern detection
+Automated alerting for suspicious activities
+Firewall rules protecting database access
+Understanding of database security monitoring
+Troubleshooting Tips
+Issue: Monitor script fails to connect to database
+
+Solution: Verify MySQL credentials in config file
+Check MySQL service status: sudo systemctl status mysql
+Test connection: mysql -u root -p
+Issue: No logs appearing in activity.log
+
+Solution: Check file permissions: ls -l /opt/opendam/logs/
+Verify monitor script is running: ps aux | grep opendam
+Check for errors: tail -f /opt/opendam/logs/activity.log
+Issue: Alerts not generating
+
+Solution: Verify alert thresholds in configuration
+Check alert log exists: ls -l /opt/opendam/logs/alerts.log
+Test with intentional suspicious activity
+Conclusion
+This lab demonstrated implementing a comprehensive database activity monitoring and alerting system. You learned to:
+
+Deploy database monitoring infrastructure
+Create Python-based analysis tools
+Implement automated security alerting
+Configure database firewall protection
+These skills are essential for database security operations and threat detection in production environments. Continue practicing by analyzing different attack patterns and refining alert thresholds.
