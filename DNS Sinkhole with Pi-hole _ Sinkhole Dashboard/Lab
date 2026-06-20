@@ -1,0 +1,534 @@
+ DNS Sinkhole with Pi-hole & Sinkhole Dashboard
+Objectives
+By the end of this lab, students will be able to:
+
+Deploy Pi-hole as a DNS sinkhole solution using Docker
+Configure custom blocklists and threat intelligence feeds
+Build a monitoring dashboard using Python and ELK stack
+Analyze DNS traffic patterns and detect anomalies
+Integrate DNS sinkhole with network traffic analysis tools
+Prerequisites
+Basic understanding of DNS concepts and network protocols
+Familiarity with Linux command line and Docker
+Basic Python programming knowledge
+Understanding of log analysis fundamentals
+Lab Environment
+Al Nafi provides pre-configured cloud machines for this lab. Click Start Lab to access your environment.
+
+Your lab machine includes:
+
+Ubuntu 22.04 LTS
+Docker and Docker Compose pre-installed
+Python 3.10 with pip
+8GB RAM and 50GB storage
+Task 1: Deploy Pi-hole DNS Sinkhole
+Step 1.1: Prepare the Environment
+# Update system and install dependencies
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y curl wget git python3-pip docker.io docker-compose
+
+# Configure Docker
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo usermod -aG docker $USER
+newgrp docker
+
+# Create project directory
+mkdir -p ~/dns-sinkhole-lab && cd ~/dns-sinkhole-lab
+Step 1.2: Deploy Pi-hole Container
+Create a Docker Compose configuration:
+
+# Create Pi-hole directories
+mkdir -p pihole/{etc-pihole,etc-dnsmasq.d}
+
+# Create docker-compose.yml
+cat > docker-compose.yml << 'EOF'
+version: '3.8'
+
+services:
+  pihole:
+    container_name: pihole
+    image: pihole/pihole:latest
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+      - "80:80/tcp"
+    environment:
+      TZ: 'America/New_York'
+      WEBPASSWORD: 'SecurePassword123!'
+      PIHOLE_DNS_: '8.8.8.8;8.8.4.4'
+      DNSMASQ_LISTENING: 'all'
+    volumes:
+      - './pihole/etc-pihole:/etc/pihole'
+      - './pihole/etc-dnsmasq.d:/etc/dnsmasq.d'
+    cap_add:
+      - NET_ADMIN
+    restart: unless-stopped
+EOF
+
+# Deploy Pi-hole
+docker-compose up -d
+
+# Wait for initialization
+sleep 30
+
+# Verify deployment
+docker-compose ps
+MACHINE_IP=$(hostname -I | awk '{print $1}')
+echo "Pi-hole Web Interface: http://$MACHINE_IP"
+Step 1.3: Configure Threat Intelligence Feeds
+# Add custom blocklists
+docker exec pihole pihole -a -addlist https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts
+docker exec pihole pihole -a -addlist https://someonewhocares.org/hosts/zero/hosts
+
+# Update gravity database
+docker exec pihole pihole -g
+
+# Verify blocklists
+docker exec pihole pihole -q -adlist
+Task 2: Deploy ELK Stack for Log Analysis
+Step 2.1: Create ELK Stack Configuration
+# Create ELK directories
+mkdir -p elk-stack/{elasticsearch/data,logstash/{config,pipeline},kibana/config}
+sudo chown -R 1000:1000 elk-stack/elasticsearch/data
+
+# Create ELK docker-compose file
+cat > elk-docker-compose.yml << 'EOF'
+version: '3.8'
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - ./elk-stack/elasticsearch/data:/usr/share/elasticsearch/data
+    restart: unless-stopped
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.11.0
+    container_name: logstash
+    ports:
+      - "5044:5044"
+    volumes:
+      - ./elk-stack/logstash/config:/usr/share/logstash/config
+      - ./elk-stack/logstash/pipeline:/usr/share/logstash/pipeline
+      - ./pihole/etc-pihole:/var/log/pihole:ro
+    depends_on:
+      - elasticsearch
+    restart: unless-stopped
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: kibana
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+    restart: unless-stopped
+EOF
+Step 2.2: Configure Logstash Pipeline
+# Create Logstash configuration
+cat > elk-stack/logstash/config/logstash.yml << 'EOF'
+http.host: "0.0.0.0"
+xpack.monitoring.elasticsearch.hosts: [ "http://elasticsearch:9200" ]
+path.config: /usr/share/logstash/pipeline
+EOF
+
+# Create pipeline configuration
+cat > elk-stack/logstash/pipeline/pihole.conf << 'EOF'
+input {
+  file {
+    path => "/var/log/pihole/pihole.log"
+    start_position => "beginning"
+    sincedb_path => "/dev/null"
+  }
+}
+
+filter {
+  grok {
+    match => { 
+      "message" => "%{SYSLOGTIMESTAMP:timestamp} %{WORD:hostname} %{WORD:process}: %{GREEDYDATA:query_info}" 
+    }
+  }
+  
+  if [query_info] =~ "query" {
+    grok {
+      match => { 
+        "query_info" => "query\[%{WORD:query_type}\] %{HOSTNAME:domain} from %{IP:client_ip}" 
+      }
+    }
+    mutate { add_field => { "action" => "query" } }
+  }
+  
+  if [query_info] =~ "blocked" {
+    grok {
+      match => { 
+        "query_info" => "blocked %{HOSTNAME:domain}" 
+      }
+    }
+    mutate { add_field => { "action" => "blocked" } }
+  }
+  
+  date {
+    match => [ "timestamp", "MMM dd HH:mm:ss" ]
+  }
+}
+
+output {
+  elasticsearch {
+    hosts => ["elasticsearch:9200"]
+    index => "pihole-logs-%{+YYYY.MM.dd}"
+  }
+}
+EOF
+
+# Deploy ELK stack
+docker-compose -f elk-docker-compose.yml up -d
+sleep 60
+
+# Verify services
+curl -X GET "localhost:9200/_cluster/health?pretty"
+Task 3: Build Python Monitoring Dashboard
+Step 3.1: Install Python Dependencies
+# Install required packages
+pip3 install flask dash plotly pandas elasticsearch requests
+
+# Create dashboard directory
+mkdir -p dashboard && cd dashboard
+Step 3.2: Create Dashboard Application (Starter Template)
+Create sinkhole_dashboard.py:
+
+#!/usr/bin/env python3
+
+import dash
+from dash import dcc, html, Input, Output
+import plotly.graph_objs as go
+import requests
+from elasticsearch import Elasticsearch
+from datetime import datetime
+
+# Initialize connections
+es = Elasticsearch([{'host': 'localhost', 'port': 9200, 'scheme': 'http'}])
+app = dash.Dash(__name__)
+
+def get_pihole_stats():
+    """
+    Fetch Pi-hole statistics from API.
+    
+    Returns:
+        dict: Pi-hole statistics including queries and blocks
+    """
+    # TODO: Implement API call to Pi-hole
+    # TODO: Parse and return statistics
+    pass
+
+def get_blocked_domains():
+    """
+    Query Elasticsearch for top blocked domains.
+    
+    Returns:
+        tuple: (domain_list, count_list)
+    """
+    # TODO: Create Elasticsearch query for blocked domains
+    # TODO: Aggregate by domain field
+    # TODO: Return top 10 domains and their counts
+    pass
+
+def get_query_timeline():
+    """
+    Get DNS query timeline data from Elasticsearch.
+    
+    Returns:
+        tuple: (timestamps, blocked_counts, allowed_counts)
+    """
+    # TODO: Query last 24 hours of data
+    # TODO: Create date histogram aggregation
+    # TODO: Separate blocked vs allowed queries
+    # TODO: Return timeline data
+    pass
+
+# Dashboard layout
+app.layout = html.Div([
+    html.H1("DNS Sinkhole Dashboard", style={'textAlign': 'center'}),
+    
+    dcc.Interval(
+        id='interval-component',
+        interval=30*1000,
+        n_intervals=0
+    ),
+    
+    html.Div([
+        html.Div([
+            html.H3("Pi-hole Statistics"),
+            html.Div(id='pihole-stats')
+        ], className='six columns'),
+        
+        html.Div([
+            html.H3("System Status"),
+            html.Div(id='system-status')
+        ], className='six columns'),
+    ], className='row'),
+    
+    dcc.Graph(id='blocked-domains-chart'),
+    dcc.Graph(id='timeline-chart'),
+])
+
+@app.callback(
+    [Output('pihole-stats', 'children'),
+     Output('system-status', 'children'),
+     Output('blocked-domains-chart', 'figure'),
+     Output('timeline-chart', 'figure')],
+    [Input('interval-component', 'n_intervals')]
+)
+def update_dashboard(n):
+    """
+    Update all dashboard components.
+    
+    Args:
+        n: Interval counter
+    
+    Returns:
+        tuple: Updated components (stats, status, charts)
+    """
+    # TODO: Call get_pihole_stats() and format output
+    # TODO: Create system status display
+    # TODO: Generate blocked domains bar chart
+    # TODO: Generate timeline chart with blocked/allowed queries
+    # TODO: Return all components
+    pass
+
+if __name__ == '__main__':
+    app.run_server(debug=True, host='0.0.0.0', port=8050)
+Step 3.3: Create Startup Script
+cat > start_dashboard.sh << 'EOF'
+#!/bin/bash
+
+echo "Starting DNS Sinkhole Dashboard..."
+
+# Verify services are running
+docker-compose -f ../docker-compose.yml ps
+docker-compose -f ../elk-docker-compose.yml ps
+
+# Start dashboard
+python3 sinkhole_dashboard.py
+EOF
+
+chmod +x start_dashboard.sh
+Task 4: Network Traffic Analysis Integration
+Step 4.1: Create Traffic Analyzer (Starter Template)
+Create traffic_analyzer.py:
+
+#!/usr/bin/env python3
+
+import subprocess
+import json
+import requests
+from datetime import datetime
+from elasticsearch import Elasticsearch
+
+class TrafficAnalyzer:
+    def __init__(self):
+        self.es = Elasticsearch([{'host': 'localhost', 'port': 9200, 'scheme': 'http'}])
+        self.pihole_api = "http://localhost/admin/api.php"
+    
+    def analyze_dns_patterns(self):
+        """
+        Analyze DNS query patterns from Elasticsearch.
+        
+        Returns:
+            dict: Analysis results with top domains and clients
+        """
+        # TODO: Query Elasticsearch for last 24 hours
+        # TODO: Aggregate by domain and client IP
+        # TODO: Calculate query statistics
+        # TODO: Return analysis results
+        pass
+    
+    def detect_anomalies(self):
+        """
+        Detect suspicious DNS patterns and anomalies.
+        
+        Returns:
+            list: Detected anomalies with details
+        """
+        # TODO: Query for suspicious domain patterns (DGA, long strings)
+        # TODO: Check for DNS tunneling (high query volume)
+        # TODO: Identify unusual query types
+        # TODO: Return list of anomalies
+        pass
+    
+    def scan_network(self):
+        """
+        Perform network scan to identify active hosts.
+        
+        Returns:
+            list: Active host IP addresses
+        """
+        # TODO: Get network range from default gateway
+        # TODO: Use nmap or similar tool to scan
+        # TODO: Parse results and extract IPs
+        # TODO: Return list of active hosts
+        pass
+    
+    def generate_report(self):
+        """
+        Generate comprehensive traffic analysis report.
+        """
+        # TODO: Fetch Pi-hole statistics
+        # TODO: Call analyze_dns_patterns()
+        # TODO: Call detect_anomalies()
+        # TODO: Format and print report
+        # TODO: Save report to file
+        pass
+
+if __name__ == "__main__":
+    analyzer = TrafficAnalyzer()
+    analyzer.generate_report()
+Step 4.2: Create Network Monitor (Starter Template)
+Create network_monitor.py:
+
+#!/usr/bin/env python3
+
+import subprocess
+import json
+import threading
+from datetime import datetime
+
+class NetworkMonitor:
+    def __init__(self):
+        self.monitoring = False
+        self.pihole_api = "http://localhost/admin/api.php"
+    
+    def capture_dns_traffic(self):
+        """
+        Capture DNS traffic using tcpdump.
+        """
+        # TODO: Start tcpdump on port 53
+        # TODO: Parse DNS queries from output
+        # TODO: Log queries to file
+        pass
+    
+    def parse_dns_query(self, line):
+        """
+        Parse DNS query from tcpdump output.
+        
+        Args:
+            line: Raw tcpdump output line
+        
+        Returns:
+            dict: Parsed query information
+        """
+        # TODO: Extract timestamp, source IP, domain
+        # TODO: Identify query type (A, AAAA, etc.)
+        # TODO: Return structured data
+        pass
+    
+    def check_blocked_domain(self, domain):
+        """
+        Check if domain is in Pi-hole blocklist.
+        
+        Args:
+            domain: Domain name to check
+        
+        Returns:
+            bool: True if blocked, False otherwise
+        """
+        # TODO: Query Pi-hole API
+        # TODO: Check if domain is in blocklist
+        # TODO: Log if blocked
+        pass
+    
+    def start_monitoring(self):
+        """
+        Start continuous network monitoring.
+        """
+        # TODO: Set monitoring flag
+        # TODO: Start DNS capture in thread
+        # TODO: Implement monitoring loop
+        # TODO: Handle keyboard interrupt
+        pass
+
+if __name__ == "__main__":
+    monitor = NetworkMonitor()
+    monitor.start_monitoring()
+Step 4.3: Create Automated Monitoring Script
+cat > automated_monitor.sh << 'EOF'
+#!/bin/bash
+
+LOG_FILE="sinkhole_monitor.log"
+ALERT_THRESHOLD=1000
+
+log_message() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a $LOG_FILE
+}
+
+check_pihole_status() {
+    # TODO: Check if Pi-hole container is running
+    # TODO: Verify DNS service is responding
+    # TODO: Log status
+    echo "Checking Pi-hole status..."
+}
+
+check_blocked_queries() {
+    # TODO: Query Pi-hole API for blocked count
+    # TODO: Compare against threshold
+    # TODO: Generate alert if exceeded
+    echo "Checking blocked queries..."
+}
+
+monitor_elk_stack() {
+    # TODO: Check Elasticsearch health
+    # TODO: Verify Logstash is processing logs
+    # TODO: Check Kibana accessibility
+    echo "Monitoring ELK stack..."
+}
+
+# Main monitoring loop
+log_message "Starting automated monitoring"
+
+while true; do
+    check_pihole_status
+    check_blocked_queries
+    monitor_elk_stack
+    
+    sleep 300  # Check every 5 minutes
+done
+EOF
+
+chmod +x automated_monitor.sh
+Expected Outcomes
+After completing this lab, you should have:
+
+A functional Pi-hole DNS sinkhole blocking malicious domains
+ELK stack collecting and indexing DNS logs
+Custom Python dashboard displaying real-time sinkhole statistics
+Network traffic analysis tools integrated with the sinkhole
+Automated monitoring detecting anomalies and suspicious patterns
+Access your dashboard at http://localhost:8050 and Pi-hole admin at http://localhost.
+
+Troubleshooting Tips
+Pi-hole not blocking queries:
+
+Verify DNS is set to Pi-hole IP: docker exec pihole pihole status
+Check gravity database: docker exec pihole pihole -g
+Review logs: docker-compose logs pihole
+ELK stack connection issues:
+
+Check Elasticsearch health: curl localhost:9200/_cluster/health
+Verify Logstash pipeline: docker-compose -f elk-docker-compose.yml logs logstash
+Ensure proper file permissions on data directories
+Dashboard not displaying data:
+
+Verify Elasticsearch has data: curl localhost:9200/pihole-logs-*/_count
+Check Python dependencies are installed
+Review browser console for JavaScript errors
+Conclusion
+This lab demonstrated deploying a DNS sinkhole using Pi-hole, integrating it with ELK stack for log analysis, and building custom monitoring tools. DNS sinkholes are effective for blocking malicious domains at the network level, providing an additional layer of security. The monitoring dashboard and traffic analysis tools enable security teams to identify threats and analyze attack patterns. Continue exploring by adding more threat intelligence feeds, implementing automated response actions, and integrating with SIEM systems for comprehensive security monitoring.
