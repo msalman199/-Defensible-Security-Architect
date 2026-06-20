@@ -1,0 +1,758 @@
+Anti-DDoS Filtering Rules with nftables
+Objectives
+By the end of this lab, students will be able to:
+
+Configure nftables to implement anti-DDoS filtering rules
+Integrate DDoS protection with Nginx reverse proxy
+Develop automated DDoS detection using Python scripts
+Implement Sigma rules for threat detection
+Monitor and analyze network traffic for DDoS patterns
+Prerequisites
+Basic Linux command line operations
+Understanding of TCP/IP, ports, and protocols
+Firewall concepts fundamentals
+Python programming basics (variables, functions, loops)
+Text editor proficiency (nano or vim)
+Lab Environment
+Your cloud machine includes:
+
+Ubuntu 22.04 LTS with nftables pre-installed
+Python 3.10 with standard libraries
+Nginx web server
+Network monitoring tools
+All necessary dependencies pre-configured
+Task 1: Configure nftables Anti-DDoS Rules
+Step 1.1: Examine Current nftables Configuration
+Check the current nftables setup:
+
+# Check nftables service status
+sudo systemctl status nftables
+
+# View current ruleset
+sudo nft list ruleset
+
+# Check version
+nft --version
+Step 1.2: Create Basic Anti-DDoS Configuration
+Create the main nftables configuration:
+
+sudo nano /etc/nftables/anti-ddos.nft
+Add this configuration:
+
+#!/usr/sbin/nft -f
+
+flush ruleset
+
+define WAN_IF = "eth0"
+define SSH_PORT = 22
+define HTTP_PORT = 80
+define HTTPS_PORT = 443
+
+table inet filter {
+    set ddos_protection {
+        type ipv4_addr
+        timeout 1h
+        size 65536
+        flags dynamic
+    }
+    
+    set whitelist {
+        type ipv4_addr
+        elements = { 127.0.0.1, 10.0.0.0/8, 192.168.0.0/16 }
+    }
+    
+    chain input {
+        type filter hook input priority filter; policy drop;
+        
+        iif "lo" accept
+        ct state established,related accept
+        ip saddr @whitelist accept
+        ct state invalid drop
+        
+        # ICMP flood protection
+        icmp type echo-request limit rate 5/second burst 10 packets accept
+        icmp type echo-request drop
+        
+        # SYN flood protection
+        tcp flags & (fin|syn|rst|ack) == syn limit rate 25/second burst 50 packets accept
+        tcp flags & (fin|syn|rst|ack) == syn add @ddos_protection { ip saddr timeout 1h } drop
+        
+        # Port scan protection
+        tcp flags & (fin|syn|rst|psh|ack|urg) == fin|syn|rst|psh|ack|urg drop
+        tcp flags & (fin|syn|rst|psh|ack|urg) == 0 drop
+        
+        # SSH rate limiting
+        tcp dport $SSH_PORT ct state new limit rate 3/minute burst 3 packets accept
+        
+        # HTTP/HTTPS connection limiting
+        tcp dport { $HTTP_PORT, $HTTPS_PORT } ct state new limit rate 100/second burst 200 packets accept
+        
+        limit rate 10/minute burst 5 packets log prefix "nftables-dropped: " level info
+    }
+    
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+    }
+    
+    chain output {
+        type filter hook output priority filter; policy accept;
+    }
+}
+Step 1.3: Apply and Verify Configuration
+Load and verify the configuration:
+
+# Load configuration
+sudo nft -f /etc/nftables/anti-ddos.nft
+
+# Verify loaded rules
+sudo nft list ruleset
+
+# Enable on boot
+sudo systemctl enable nftables
+
+# Save configuration
+sudo nft list ruleset > /etc/nftables.conf
+Step 1.4: Create nftables Monitoring Script
+Create a monitoring script template:
+
+nano ~/nftables_monitor.py
+Add this starter code:
+
+#!/usr/bin/env python3
+
+import subprocess
+import re
+import time
+from datetime import datetime
+
+class NFTablesMonitor:
+    def __init__(self):
+        self.blocked_ips = set()
+        
+    def get_nft_stats(self):
+        """
+        Execute nftables command and return output.
+        
+        Returns:
+            str: nftables ruleset output
+        """
+        # TODO: Implement subprocess call to get nftables stats
+        # TODO: Handle exceptions appropriately
+        pass
+    
+    def parse_blocked_ips(self, nft_output):
+        """
+        Parse nftables output to extract blocked IPs from sets.
+        
+        Args:
+            nft_output: String output from nftables
+            
+        Returns:
+            set: Set of blocked IP addresses
+        """
+        # TODO: Use regex to find ddos_protection set
+        # TODO: Extract IP addresses from the set
+        # TODO: Return set of IPs
+        pass
+    
+    def get_connection_count(self):
+        """
+        Get current number of active connections.
+        
+        Returns:
+            int: Number of active connections
+        """
+        # TODO: Use 'ss' command to count connections
+        # TODO: Parse output and return count
+        pass
+    
+    def display_status(self, timestamp, blocked_count, conn_count):
+        """
+        Display current monitoring status.
+        
+        Args:
+            timestamp: Current timestamp
+            blocked_count: Number of blocked IPs
+            conn_count: Number of active connections
+        """
+        # TODO: Format and print status information
+        pass
+    
+    def monitor_loop(self, interval=10):
+        """
+        Main monitoring loop.
+        
+        Args:
+            interval: Seconds between checks
+        """
+        print("Starting nftables DDoS monitoring...")
+        
+        # TODO: Implement infinite loop with try/except
+        # TODO: Call get_nft_stats() each iteration
+        # TODO: Parse and display blocked IPs
+        # TODO: Check for new blocked IPs
+        # TODO: Display connection statistics
+        # TODO: Sleep for specified interval
+        pass
+
+if __name__ == "__main__":
+    monitor = NFTablesMonitor()
+    monitor.monitor_loop()
+Make executable and test:
+
+chmod +x ~/nftables_monitor.py
+# Complete the script before running
+Task 2: Integrate DDoS Protection with Nginx Reverse Proxy
+Step 2.1: Install and Configure Nginx
+Install Nginx:
+
+sudo apt update
+sudo apt install nginx -y
+sudo systemctl start nginx
+sudo systemctl enable nginx
+sudo systemctl status nginx
+Step 2.2: Create Backend Application
+Create a simple backend server:
+
+nano ~/backend_app.py
+Add starter template:
+
+#!/usr/bin/env python3
+
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import json
+from datetime import datetime
+
+class BackendHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        """
+        Handle GET requests.
+        """
+        # TODO: Get client IP from self.client_address
+        # TODO: Log the request with timestamp
+        # TODO: Create response dictionary with request info
+        # TODO: Send 200 response with JSON data
+        pass
+    
+    def do_POST(self):
+        """
+        Handle POST requests.
+        """
+        # TODO: Read content length from headers
+        # TODO: Read POST data
+        # TODO: Create response with received data info
+        # TODO: Send JSON response
+        pass
+    
+    def log_message(self, format, *args):
+        pass
+
+def run_server(host='127.0.0.1', port=8080):
+    """
+    Start the backend HTTP server.
+    
+    Args:
+        host: Server host address
+        port: Server port number
+    """
+    # TODO: Create HTTPServer instance
+    # TODO: Print startup message
+    # TODO: Start server with error handling
+    pass
+
+if __name__ == "__main__":
+    run_server()
+Step 2.3: Configure Nginx with DDoS Protection
+Create Nginx configuration:
+
+sudo nano /etc/nginx/sites-available/ddos-protected-proxy
+Add this configuration:
+
+limit_req_zone $binary_remote_addr zone=general:10m rate=10r/s;
+limit_req_zone $binary_remote_addr zone=strict:10m rate=2r/s;
+limit_conn_zone $binary_remote_addr zone=conn_limit:10m;
+
+map $http_user_agent $blocked_agent {
+    default 0;
+    ~*bot 1;
+    ~*crawler 1;
+    ~*spider 1;
+    "" 1;
+}
+
+server {
+    listen 80;
+    server_name localhost;
+    
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    server_tokens off;
+    
+    limit_conn conn_limit 10;
+    
+    if ($blocked_agent) {
+        return 403;
+    }
+    
+    location / {
+        limit_req zone=general burst=20 nodelay;
+        limit_req_status 429;
+        
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        
+        proxy_connect_timeout 5s;
+        proxy_send_timeout 10s;
+        proxy_read_timeout 10s;
+    }
+    
+    location /admin/ {
+        limit_req zone=strict burst=5 nodelay;
+        
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+    
+    error_page 429 @rate_limit;
+    location @rate_limit {
+        return 429 "Rate limit exceeded\n";
+    }
+    
+    access_log /var/log/nginx/ddos_proxy_access.log;
+    error_log /var/log/nginx/ddos_proxy_error.log;
+}
+Enable configuration:
+
+sudo ln -s /etc/nginx/sites-available/ddos-protected-proxy /etc/nginx/sites-enabled/
+sudo rm /etc/nginx/sites-enabled/default
+sudo nginx -t
+sudo systemctl reload nginx
+Step 2.4: Create Nginx Log Monitor
+Create monitoring script:
+
+nano ~/nginx_ddos_monitor.py
+Add starter template:
+
+#!/usr/bin/env python3
+
+import re
+import time
+from collections import defaultdict, deque
+from datetime import datetime, timedelta
+
+class NginxDDoSMonitor:
+    def __init__(self):
+        self.access_log = "/var/log/nginx/ddos_proxy_access.log"
+        self.ip_requests = defaultdict(lambda: deque())
+        self.blocked_ips = set()
+        self.alert_threshold = 50
+        
+    def parse_log_line(self, line):
+        """
+        Parse Nginx access log line.
+        
+        Args:
+            line: Log line string
+            
+        Returns:
+            dict: Parsed log data or None
+        """
+        # TODO: Define regex pattern for Nginx log format
+        # TODO: Match pattern against line
+        # TODO: Return dictionary with ip, timestamp, request, status
+        pass
+    
+    def is_suspicious(self, request_data):
+        """
+        Check if request matches suspicious patterns.
+        
+        Args:
+            request_data: Dictionary with request information
+            
+        Returns:
+            bool: True if suspicious
+        """
+        # TODO: Define suspicious patterns list
+        # TODO: Check request against patterns
+        # TODO: Check user agent for bots
+        # TODO: Return True if any pattern matches
+        pass
+    
+    def analyze_ip_rate(self, ip):
+        """
+        Analyze request rate for given IP.
+        
+        Args:
+            ip: IP address string
+            
+        Returns:
+            int: Number of requests in last minute
+        """
+        # TODO: Get current time
+        # TODO: Filter requests from last minute
+        # TODO: Update deque with recent requests
+        # TODO: Return count
+        pass
+    
+    def block_ip(self, ip, reason):
+        """
+        Block IP using nftables.
+        
+        Args:
+            ip: IP address to block
+            reason: Reason for blocking
+        """
+        # TODO: Build nftables command to add IP to set
+        # TODO: Execute command with subprocess
+        # TODO: Log blocking action
+        # TODO: Add to blocked_ips set
+        pass
+    
+    def tail_log(self):
+        """
+        Tail log file and yield new lines.
+        
+        Yields:
+            str: New log lines
+        """
+        # TODO: Open log file
+        # TODO: Seek to end
+        # TODO: Continuously read new lines
+        # TODO: Yield lines as they appear
+        pass
+    
+    def monitor(self):
+        """
+        Main monitoring loop.
+        """
+        print("Starting Nginx DDoS monitoring...")
+        
+        # TODO: Iterate over tail_log() output
+        # TODO: Parse each log line
+        # TODO: Track IP request rates
+        # TODO: Check for suspicious patterns
+        # TODO: Block IPs exceeding thresholds
+        # TODO: Display alerts
+        pass
+
+if __name__ == "__main__":
+    monitor = NginxDDoSMonitor()
+    monitor.monitor()
+Step 2.5: Test the Setup
+Test the reverse proxy:
+
+# Start backend (complete the script first)
+python3 ~/backend_app.py &
+
+# Test normal request
+curl http://localhost/
+
+# Test rate limiting
+for i in {1..15}; do curl -s -o /dev/null -w "%{http_code}\n" http://localhost/; done
+
+# Test with bot user agent
+curl -H "User-Agent: BadBot/1.0" http://localhost/
+
+# Stop backend
+killall python3
+Task 3: Implement Sigma Rules for DDoS Detection
+Step 3.1: Create Sigma Rule Structure
+Create directory structure:
+
+mkdir -p ~/sigma_rules/{ddos,network,web}
+Step 3.2: Define Sigma Rules
+Create SYN flood detection rule:
+
+nano ~/sigma_rules/ddos/syn_flood.yml
+title: TCP SYN Flood Detection
+id: ddos-001-syn-flood
+status: experimental
+description: Detects TCP SYN flood attacks
+author: Security Team
+date: 2024/01/01
+tags:
+    - attack.impact
+    - attack.t1499.004
+logsource:
+    category: network
+    product: nftables
+detection:
+    selection:
+        protocol: tcp
+        flags: syn
+        state: new
+    condition: selection
+    timeframe: 60s
+    count: 100
+falsepositives:
+    - High-traffic applications
+    - Load testing
+level: high
+Create HTTP flood rule:
+
+nano ~/sigma_rules/ddos/http_flood.yml
+title: HTTP Flood Detection
+id: ddos-002-http-flood
+status: experimental
+description: Detects HTTP flood attacks
+author: Security Team
+date: 2024/01/01
+tags:
+    - attack.impact
+    - attack.t1499.004
+logsource:
+    category: webserver
+    product: nginx
+detection:
+    selection:
+        status: 200|404|429
+    condition: selection
+    timeframe: 60s
+    count: 200
+falsepositives:
+    - Legitimate high traffic
+    - API endpoints
+level: high
+Step 3.3: Create Sigma Rule Parser
+Create parser script:
+
+nano ~/sigma_parser.py
+Add starter template:
+
+#!/usr/bin/env python3
+
+import yaml
+import os
+from datetime import datetime, timedelta
+from collections import defaultdict
+
+class SigmaRuleEngine:
+    def __init__(self, rules_dir):
+        self.rules_dir = rules_dir
+        self.rules = []
+        self.event_buffer = defaultdict(list)
+        
+    def load_rules(self):
+        """
+        Load all Sigma rules from directory.
+        
+        Returns:
+            list: List of loaded rule dictionaries
+        """
+        # TODO: Walk through rules directory
+        # TODO: Find all .yml files
+        # TODO: Parse YAML files
+        # TODO: Append to self.rules list
+        pass
+    
+    def parse_rule(self, rule_path):
+        """
+        Parse a single Sigma rule file.
+        
+        Args:
+            rule_path: Path to rule file
+            
+        Returns:
+            dict: Parsed rule data
+        """
+        # TODO: Open and read YAML file
+        # TODO: Parse with yaml.safe_load()
+        # TODO: Return parsed dictionary
+        pass
+    
+    def match_event(self, event, rule):
+        """
+        Check if event matches rule selection criteria.
+        
+        Args:
+            event: Event dictionary
+            rule: Rule dictionary
+            
+        Returns:
+            bool: True if event matches
+        """
+        # TODO: Get selection criteria from rule
+        # TODO: Check each field against event
+        # TODO: Return True if all fields match
+        pass
+    
+    def check_threshold(self, rule_id, timeframe, count):
+        """
+        Check if event count exceeds threshold in timeframe.
+        
+        Args:
+            rule_id: Rule identifier
+            timeframe: Time window in seconds
+            count: Threshold count
+            
+        Returns:
+            bool: True if threshold exceeded
+        """
+        # TODO: Get events for rule_id from buffer
+        # TODO: Filter events within timeframe
+        # TODO: Compare count to threshold
+        # TODO: Return result
+        pass
+    
+    def process_event(self, event):
+        """
+        Process event against all loaded rules.
+        
+        Args:
+            event: Event dictionary to process
+            
+        Returns:
+            list: List of triggered rule IDs
+        """
+        # TODO: Iterate through loaded rules
+        # TODO: Check if event matches each rule
+        # TODO: Add to event buffer
+        # TODO: Check thresholds
+        # TODO: Return list of triggered rules
+        pass
+    
+    def generate_alert(self, rule, event_count):
+        """
+        Generate alert for triggered rule.
+        
+        Args:
+            rule: Rule dictionary
+            event_count: Number of matching events
+        """
+        # TODO: Format alert message
+        # TODO: Include rule title, level, description
+        # TODO: Print or log alert
+        pass
+
+if __name__ == "__main__":
+    engine = SigmaRuleEngine("~/sigma_rules")
+    # TODO: Load rules
+    # TODO: Process sample events
+    # TODO: Display results
+Step 3.4: Integrate with Log Monitoring
+Create integrated monitoring script:
+
+nano ~/integrated_monitor.py
+Add starter template:
+
+#!/usr/bin/env python3
+
+import subprocess
+import time
+from datetime import datetime
+
+class IntegratedDDoSMonitor:
+    def __init__(self):
+        self.nft_monitor = None  # TODO: Initialize NFTablesMonitor
+        self.nginx_monitor = None  # TODO: Initialize NginxDDoSMonitor
+        self.sigma_engine = None  # TODO: Initialize SigmaRuleEngine
+        
+    def collect_nftables_events(self):
+        """
+        Collect events from nftables.
+        
+        Returns:
+            list: List of event dictionaries
+        """
+        # TODO: Get nftables statistics
+        # TODO: Parse into event format
+        # TODO: Return list of events
+        pass
+    
+    def collect_nginx_events(self):
+        """
+        Collect events from Nginx logs.
+        
+        Returns:
+            list: List of event dictionaries
+        """
+        # TODO: Read recent Nginx log entries
+        # TODO: Parse into event format
+        # TODO: Return list of events
+        pass
+    
+    def correlate_events(self, nft_events, nginx_events):
+        """
+        Correlate events from multiple sources.
+        
+        Args:
+            nft_events: Events from nftables
+            nginx_events: Events from Nginx
+            
+        Returns:
+            list: Correlated events
+        """
+        # TODO: Match events by IP and timestamp
+        # TODO: Combine related events
+        # TODO: Return correlated list
+        pass
+    
+    def run(self):
+        """
+        Main monitoring loop.
+        """
+        print("Starting integrated DDoS monitoring...")
+        
+        # TODO: Load Sigma rules
+        # TODO: Start monitoring loop
+        # TODO: Collect events from all sources
+        # TODO: Process through Sigma engine
+        # TODO: Generate alerts
+        # TODO: Take automated actions
+        pass
+
+if __name__ == "__main__":
+    monitor = IntegratedDDoSMonitor()
+    monitor.run()
+Expected Outcomes
+After completing this lab, you should have:
+
+Functional nftables configuration with anti-DDoS rules
+Nginx reverse proxy with rate limiting and connection controls
+Python monitoring scripts tracking DDoS patterns
+Sigma rules for automated threat detection
+Integrated monitoring system correlating multiple data sources
+Test your implementation by:
+
+Generating normal traffic and verifying it passes through
+Simulating high-rate requests to trigger rate limits
+Testing with suspicious user agents and patterns
+Verifying blocked IPs appear in nftables sets
+Confirming alerts are generated for threshold violations
+Troubleshooting Tips
+nftables rules not loading:
+
+Check syntax with sudo nft -c -f /etc/nftables/anti-ddos.nft
+Verify file permissions are correct
+Check for conflicting existing rules with sudo nft list ruleset
+Nginx rate limiting not working:
+
+Verify zone definitions are before server block
+Check Nginx error log: sudo tail -f /var/log/nginx/error.log
+Test configuration: sudo nginx -t
+Python scripts failing:
+
+Verify required libraries are installed
+Check file permissions for log access
+Run with python3 -u script.py for unbuffered output
+Add print statements to debug logic flow
+Monitoring not detecting events:
+
+Ensure log files exist and are being written to
+Check log file permissions
+Verify regex patterns match actual log format
+Test parsing functions with sample log lines
+Conclusion
+This lab demonstrated comprehensive DDoS protection using nftables, Nginx, and automated detection systems. You configured multi-layered defenses including connection rate limiting, suspicious pattern detection, and automated blocking. The integration of Sigma rules provides a standardized approach to threat detection that can be extended to other security scenarios.
+
+Key takeaways:
+
+Defense in depth requires multiple protection layers
+Rate limiting is essential for DDoS mitigation
+Automated detection reduces response time
+Log correlation improves threat visibility
+Standardized rules (Sigma) enable consistent detection
+Continue practicing by adjusting thresholds, adding custom rules, and testing against different attack patterns.
