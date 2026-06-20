@@ -1,0 +1,491 @@
+Secure SMTP Relay & Reverse Proxy-based WAF
+Objectives
+By the end of this lab, students will be able to:
+
+Configure secure SMTP relay with authentication and TLS encryption
+Implement firewall rules and fail2ban protection for SMTP services
+Deploy Nginx as a reverse proxy-based Web Application Firewall (WAF)
+Create custom WAF rules to detect and block common web attacks
+Develop Python automation scripts for WAF rule management
+Analyze security logs to identify attack patterns
+Prerequisites
+Basic Linux command line proficiency
+Understanding of SMTP, HTTP/HTTPS protocols
+Familiarity with firewall concepts
+Basic Python programming skills
+Knowledge of common web vulnerabilities (SQL injection, XSS)
+Lab Environment
+Cloud Environment: Al Nafi provides pre-configured Ubuntu 22.04 LTS machines. Click Start Lab to access your environment.
+
+System Specifications:
+
+Ubuntu 22.04 LTS
+2GB RAM minimum
+20GB storage
+Internet connectivity
+Single machine setup
+Task 1: Configure Secure SMTP Relay
+Step 1.1: Install Required Packages
+# Update system and install packages
+sudo apt update && sudo apt upgrade -y
+sudo apt install postfix postfix-pcre sasl2-bin libsasl2-modules fail2ban ufw -y
+Configuration Note: Select "Internet Site" during Postfix installation and enter your hostname.
+
+Step 1.2: Configure Postfix Security Settings
+Create the main configuration file:
+
+# Backup original configuration
+sudo cp /etc/postfix/main.cf /etc/postfix/main.cf.backup
+
+# Edit main configuration
+sudo nano /etc/postfix/main.cf
+Add these essential security settings:
+
+# Basic Configuration
+myhostname = mail.example.com
+mydomain = example.com
+inet_interfaces = all
+inet_protocols = ipv4
+
+# Security Settings
+smtpd_banner = $myhostname ESMTP
+disable_vrfy_command = yes
+smtpd_helo_required = yes
+
+# SASL Authentication
+smtpd_sasl_auth_enable = yes
+smtpd_sasl_type = dovecot
+smtpd_sasl_path = private/auth
+smtpd_sasl_security_options = noanonymous
+
+# TLS Configuration
+smtpd_use_tls = yes
+smtpd_tls_security_level = may
+smtpd_tls_cert_file = /etc/ssl/certs/ssl-cert-snakeoil.pem
+smtpd_tls_key_file = /etc/ssl/private/ssl-cert-snakeoil.key
+smtpd_tls_protocols = !SSLv2, !SSLv3, !TLSv1, !TLSv1.1
+
+# Access Control
+smtpd_recipient_restrictions = 
+    permit_mynetworks,
+    permit_sasl_authenticated,
+    reject_unauth_destination,
+    permit
+
+# Rate Limiting
+smtpd_client_connection_rate_limit = 30
+smtpd_error_sleep_time = 1s
+smtpd_soft_error_limit = 10
+smtpd_hard_error_limit = 20
+Step 1.3: Configure SASL Authentication
+# Create SASL configuration
+sudo mkdir -p /etc/postfix/sasl
+sudo nano /etc/postfix/sasl/smtpd.conf
+Add SASL settings:
+
+pwcheck_method: auxprop
+auxprop_plugin: sasldb
+mech_list: PLAIN LOGIN CRAM-MD5
+Create test user:
+
+# Create SASL user (enter password when prompted)
+sudo saslpasswd2 -c -u example.com testuser
+
+# Set permissions
+sudo chown postfix:sasl /etc/sasldb2
+sudo chmod 640 /etc/sasldb2
+Step 1.4: Configure Firewall Protection
+# Enable UFW and allow necessary ports
+sudo ufw --force enable
+sudo ufw allow 22/tcp
+sudo ufw allow 25/tcp
+sudo ufw allow 587/tcp
+
+# Create iptables rate limiting rules
+sudo iptables -A INPUT -p tcp --dport 25 -m conntrack --ctstate NEW -m recent --set --name smtp
+sudo iptables -A INPUT -p tcp --dport 25 -m conntrack --ctstate NEW -m recent --update --seconds 60 --hitcount 10 --name smtp -j DROP
+
+# Save iptables rules
+sudo netfilter-persistent save
+Step 1.5: Configure Fail2Ban
+# Create Postfix jail configuration
+sudo nano /etc/fail2ban/jail.d/postfix.conf
+Add jail configuration:
+
+[postfix-sasl]
+enabled = true
+port = smtp,465,submission
+filter = postfix-sasl
+logpath = /var/log/mail.log
+maxretry = 3
+bantime = 3600
+findtime = 600
+Restart services:
+
+sudo systemctl restart fail2ban
+sudo systemctl restart postfix
+sudo systemctl enable postfix fail2ban
+Task 2: Deploy Nginx Reverse Proxy WAF
+Step 2.1: Install Nginx and Dependencies
+# Install Nginx with modules
+sudo apt install nginx nginx-extras libnginx-mod-http-headers-more-filter -y
+
+# Create WAF directory structure
+sudo mkdir -p /etc/nginx/waf /var/log/nginx/waf /var/www/testapp
+Step 2.2: Create WAF Rule Sets
+# Create main WAF rules
+sudo nano /etc/nginx/waf/waf-rules.conf
+Add detection rules:
+
+# Rate Limiting Zones
+limit_req_zone $binary_remote_addr zone=login:10m rate=5r/m;
+limit_req_zone $binary_remote_addr zone=general:10m rate=100r/m;
+limit_conn_zone $binary_remote_addr zone=conn_limit:10m;
+
+# SQL Injection Detection
+map $args $sql_injection {
+    default 0;
+    ~*union.*select 1;
+    ~*select.*from 1;
+    ~*insert.*into 1;
+    ~*drop.*table 1;
+}
+
+# XSS Detection
+map $args $xss_attack {
+    default 0;
+    ~*<script 1;
+    ~*javascript: 1;
+    ~*onerror= 1;
+    ~*alert\( 1;
+}
+
+# Path Traversal Detection
+map $request_uri $path_traversal {
+    default 0;
+    ~*\.\./\.\. 1;
+    ~*etc/passwd 1;
+}
+
+# Malicious User Agents
+map $http_user_agent $blocked_agent {
+    default 0;
+    ~*sqlmap 1;
+    ~*nikto 1;
+    ~*nmap 1;
+}
+Create blocking rules:
+
+sudo nano /etc/nginx/waf/blocking-rules.conf
+# Block SQL injection
+if ($sql_injection) {
+    return 403 "SQL injection detected";
+}
+
+# Block XSS attacks
+if ($xss_attack) {
+    return 403 "XSS attack detected";
+}
+
+# Block path traversal
+if ($path_traversal) {
+    return 403 "Path traversal detected";
+}
+
+# Block malicious agents
+if ($blocked_agent) {
+    return 403 "Blocked user agent";
+}
+
+# Security headers
+add_header X-Frame-Options "SAMEORIGIN" always;
+add_header X-Content-Type-Options "nosniff" always;
+add_header X-XSS-Protection "1; mode=block" always;
+server_tokens off;
+Step 2.3: Configure Virtual Host with WAF
+Create test application:
+
+sudo nano /var/www/testapp/index.html
+<!DOCTYPE html>
+<html>
+<head><title>WAF Protected App</title></head>
+<body>
+    <h1>Test Application</h1>
+    <form method="post" action="/login">
+        <input type="text" name="username" placeholder="Username">
+        <input type="password" name="password" placeholder="Password">
+        <input type="submit" value="Login">
+    </form>
+</body>
+</html>
+Create virtual host:
+
+sudo nano /etc/nginx/sites-available/waf-protected-site
+server {
+    listen 80;
+    server_name testapp.local;
+    
+    # Include WAF rules
+    include /etc/nginx/waf/waf-rules.conf;
+    include /etc/nginx/waf/blocking-rules.conf;
+    
+    # Rate limiting
+    limit_req zone=general burst=50 nodelay;
+    limit_conn conn_limit 10;
+    
+    # Logging
+    access_log /var/log/nginx/waf/access.log combined;
+    error_log /var/log/nginx/waf/error.log warn;
+    
+    root /var/www/testapp;
+    index index.html;
+    
+    location / {
+        try_files $uri $uri/ =404;
+    }
+    
+    location /login {
+        limit_req zone=login burst=3 nodelay;
+        try_files $uri $uri/ =404;
+    }
+    
+    # Block sensitive files
+    location ~* \.(htaccess|ini|log|conf)$ {
+        deny all;
+    }
+}
+Enable site and restart:
+
+sudo ln -s /etc/nginx/sites-available/waf-protected-site /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t
+sudo systemctl restart nginx
+sudo systemctl enable nginx
+Task 3: Automate WAF Management with Python
+Step 3.1: Create Python WAF Manager Script
+# Install Python dependencies
+sudo apt install python3-pip python3-venv -y
+python3 -m venv /opt/waf-manager
+source /opt/waf-manager/bin/activate
+pip install requests pyyaml
+Create management script:
+
+nano /opt/waf-manager/waf_manager.py
+Starter template for students to complete:
+
+#!/usr/bin/env python3
+"""
+WAF Rule Management System
+Students: Complete the TODO sections to implement full functionality
+"""
+
+import os
+import sys
+import logging
+import requests
+import subprocess
+from datetime import datetime
+
+class WAFManager:
+    def __init__(self, config_path='/etc/nginx/waf'):
+        self.config_path = config_path
+        self.setup_logging()
+        
+    def setup_logging(self):
+        """Configure logging for WAF manager"""
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler('/var/log/waf-manager.log'),
+                logging.StreamHandler(sys.stdout)
+            ]
+        )
+        self.logger = logging.getLogger(__name__)
+        
+    def download_threat_feed(self, url: str) -> list:
+        """
+        Download threat intelligence feed from URL
+        
+        Args:
+            url: URL of threat feed
+            
+        Returns:
+            List of IP addresses
+        """
+        # TODO: Implement HTTP request to download feed
+        # TODO: Parse response and extract IP addresses
+        # TODO: Validate IP address format
+        # TODO: Return list of valid IPs
+        pass
+        
+    def update_blacklist(self, ip_list: list):
+        """
+        Update Nginx geo blacklist configuration
+        
+        Args:
+            ip_list: List of IP addresses to block
+        """
+        # TODO: Create geo block configuration format
+        # TODO: Write to /etc/nginx/waf/geo-blacklist.conf
+        # TODO: Backup existing configuration
+        # TODO: Log number of IPs added
+        pass
+        
+    def analyze_logs(self, log_file: str) -> dict:
+        """
+        Analyze WAF logs for attack patterns
+        
+        Args:
+            log_file: Path to Nginx access log
+            
+        Returns:
+            Dictionary with attack statistics
+        """
+        # TODO: Read log file
+        # TODO: Count different attack types (SQL injection, XSS, etc.)
+        # TODO: Identify top attacking IPs
+        # TODO: Return statistics dictionary
+        pass
+        
+    def reload_nginx(self) -> bool:
+        """
+        Test and reload Nginx configuration
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        # TODO: Run nginx -t to test configuration
+        # TODO: If test passes, reload Nginx
+        # TODO: Log results
+        # TODO: Return success status
+        pass
+        
+    def run_update_cycle(self):
+        """Execute complete WAF update cycle"""
+        # TODO: Download threat feeds
+        # TODO: Update blacklist rules
+        # TODO: Analyze recent logs
+        # TODO: Reload Nginx if needed
+        pass
+
+def main():
+    """Main execution function"""
+    # TODO: Create WAFManager instance
+    # TODO: Run update cycle
+    # TODO: Handle exceptions and log errors
+    pass
+
+if __name__ == '__main__':
+    main()
+Step 3.2: Create Configuration File
+nano /opt/waf-manager/config.yaml
+nginx:
+  config_path: /etc/nginx/waf
+  log_path: /var/log/nginx/waf
+  reload_command: sudo systemctl reload nginx
+
+rules:
+  update_interval: 3600
+  backup_count: 5
+  threat_feeds:
+    - https://rules.emergingthreats.net/blockrules/compromised-ips.txt
+
+monitoring:
+  log_analysis_interval: 300
+  alert_threshold: 100
+Step 3.3: Create Systemd Service for Automation
+sudo nano /etc/systemd/system/waf-manager.service
+[Unit]
+Description=WAF Rule Manager
+After=network.target nginx.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/waf-manager
+ExecStart=/opt/waf-manager/bin/python3 /opt/waf-manager/waf_manager.py
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+Enable service:
+
+sudo systemctl daemon-reload
+sudo systemctl enable waf-manager.service
+Task 4: Testing and Validation
+Step 4.1: Test SMTP Security
+# Test SMTP connection
+telnet localhost 25
+
+# Test SASL authentication
+openssl s_client -connect localhost:587 -starttls smtp
+
+# Check fail2ban status
+sudo fail2ban-client status postfix-sasl
+Step 4.2: Test WAF Protection
+Test SQL injection detection:
+
+curl "http://testapp.local/?id=1' OR '1'='1"
+# Expected: 403 Forbidden
+Test XSS detection:
+
+curl "http://testapp.local/?search=<script>alert('xss')</script>"
+# Expected: 403 Forbidden
+Test rate limiting:
+
+# Send multiple rapid requests
+for i in {1..20}; do curl http://testapp.local/login; done
+# Expected: 429 Too Many Requests after threshold
+Step 4.3: Monitor Logs
+# View WAF access logs
+sudo tail -f /var/log/nginx/waf/access.log
+
+# View WAF error logs
+sudo tail -f /var/log/nginx/waf/error.log
+
+# View SMTP logs
+sudo tail -f /var/log/mail.log
+
+# Check fail2ban logs
+sudo tail -f /var/log/fail2ban.log
+Expected Outcomes
+After completing this lab, students should have:
+
+Secure SMTP relay with TLS encryption and SASL authentication
+Firewall protection with rate limiting and fail2ban integration
+Functional WAF detecting SQL injection, XSS, and path traversal attacks
+Python automation script for managing WAF rules (completed by student)
+Monitoring system tracking security events and attack patterns
+Working knowledge of integrating email and web application security
+Troubleshooting Tips
+SMTP Issues:
+
+If Postfix fails to start, check configuration: sudo postfix check
+Verify SASL database permissions: ls -l /etc/sasldb2
+Test authentication: testsaslauthd -u testuser -p password
+Nginx/WAF Issues:
+
+Configuration errors: sudo nginx -t shows syntax problems
+Rules not blocking: Check if WAF rules are included in virtual host
+Rate limiting not working: Verify zone definitions in waf-rules.conf
+Python Script Issues:
+
+Import errors: Ensure virtual environment is activated
+Permission denied: Run script with sudo or adjust file permissions
+Nginx reload fails: Check if user has sudo privileges for systemctl
+Conclusion
+This lab demonstrated implementing defense-in-depth security by combining SMTP relay protection with a reverse proxy-based WAF. Students configured multiple security layers including authentication, encryption, firewall rules, and application-level filtering. The Python automation component enables continuous security updates through threat intelligence integration. These skills are essential for securing modern infrastructure against email-based attacks and web application exploits.
+
+Key Takeaways:
+
+Multi-layered security provides better protection than single solutions
+Automation is critical for maintaining current threat intelligence
+Log analysis helps identify attack patterns and improve defenses
+Rate limiting prevents resource exhaustion and brute force attacks
+Next Steps:
+
+Complete the Python WAF manager implementation
+Add custom detection rules for application-specific threats
+Integrate with SIEM systems for centralized monitoring
+Implement SSL/TLS certificates for production environments
