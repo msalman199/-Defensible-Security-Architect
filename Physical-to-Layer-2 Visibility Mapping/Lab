@@ -1,0 +1,473 @@
+Physical-to-Layer-2 Visibility Mapping
+Objectives
+By the end of this lab, students will be able to:
+
+Map relationships between physical network infrastructure and Layer 2 communications
+Deploy hybrid network environments using Vagrant virtualization
+Capture and analyze Layer 2 traffic using packet analysis tools
+Develop Python scripts to automate network visibility reporting
+Generate comprehensive network topology and security assessment reports
+Prerequisites
+Basic understanding of OSI model (Layer 1 and Layer 2)
+Familiarity with MAC addresses, switches, and network segments
+Basic Linux command-line skills
+Elementary Python programming knowledge
+Lab Environment
+Your pre-configured cloud machine includes:
+
+Ubuntu 22.04 LTS
+Vagrant and VirtualBox
+Wireshark/tshark for packet analysis
+Python 3.10+ with networking libraries
+All required network utilities
+Click Start Lab to access your environment.
+
+Task 1: Deploy Hybrid Network Environment
+Step 1.1: Create Lab Directory and Vagrantfile
+Create your working directory:
+
+mkdir ~/lab4-network-visibility
+cd ~/lab4-network-visibility
+Create a Vagrantfile to define the network topology:
+
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+Vagrant.configure("2") do |config|
+  # Web Server - DMZ and Internal Network
+  config.vm.define "webserver" do |web|
+    web.vm.box = "ubuntu/jammy64"
+    web.vm.hostname = "webserver"
+    web.vm.network "private_network", ip: "192.168.10.10", virtualbox__intnet: "internal_net"
+    web.vm.network "private_network", ip: "10.0.1.10", virtualbox__intnet: "dmz_net"
+    web.vm.provider "virtualbox" do |vb|
+      vb.memory = "512"
+      vb.cpus = 1
+    end
+    web.vm.provision "shell", inline: <<-SHELL
+      apt-get update -qq
+      apt-get install -y apache2 tcpdump net-tools
+      echo "<h1>WebServer - $(hostname -I)</h1>" > /var/www/html/index.html
+    SHELL
+  end
+
+  # Database Server - Internal Network Only
+  config.vm.define "database" do |db|
+    db.vm.box = "ubuntu/jammy64"
+    db.vm.hostname = "database"
+    db.vm.network "private_network", ip: "192.168.10.20", virtualbox__intnet: "internal_net"
+    db.vm.provider "virtualbox" do |vb|
+      vb.memory = "512"
+      vb.cpus = 1
+    end
+    db.vm.provision "shell", inline: <<-SHELL
+      apt-get update -qq
+      apt-get install -y mysql-server tcpdump net-tools
+    SHELL
+  end
+
+  # Router - All Networks
+  config.vm.define "router" do |rt|
+    rt.vm.box = "ubuntu/jammy64"
+    rt.vm.hostname = "router"
+    rt.vm.network "private_network", ip: "192.168.10.1", virtualbox__intnet: "internal_net"
+    rt.vm.network "private_network", ip: "10.0.1.1", virtualbox__intnet: "dmz_net"
+    rt.vm.network "private_network", ip: "172.16.1.1", virtualbox__intnet: "external_net"
+    rt.vm.provider "virtualbox" do |vb|
+      vb.memory = "512"
+      vb.cpus = 1
+    end
+    rt.vm.provision "shell", inline: <<-SHELL
+      apt-get update -qq
+      apt-get install -y tcpdump net-tools
+      echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
+      sysctl -p
+    SHELL
+  end
+end
+Step 1.2: Launch Virtual Machines
+Start the environment:
+
+vagrant up
+Verify all VMs are running:
+
+vagrant status
+Step 1.3: Test Network Connectivity
+SSH into the router and verify connectivity:
+
+vagrant ssh router
+ip addr show
+ping -c 3 192.168.10.10
+ping -c 3 192.168.10.20
+exit
+Task 2: Capture Layer 2 Traffic
+Step 2.1: Identify Network Interfaces
+Create a script to identify VirtualBox network interfaces:
+
+nano identify_interfaces.sh
+Add the following:
+
+#!/bin/bash
+echo "=== Available Network Interfaces ==="
+ip link show | grep -E "^[0-9]+:" | awk '{print $2}' | sed 's/://'
+
+echo -e "\n=== VirtualBox Host-Only Interfaces ==="
+VBoxManage list hostonlyifs | grep -E "^Name:|^IPAddress:"
+
+echo -e "\n=== Vagrant VM Status ==="
+cd ~/lab4-network-visibility && vagrant status
+Make executable and run:
+
+chmod +x identify_interfaces.sh
+./identify_interfaces.sh
+Step 2.2: Create Traffic Capture Script
+Create a Python script for automated traffic capture:
+
+nano capture_traffic.py
+Add starter template:
+
+#!/usr/bin/env python3
+
+import subprocess
+import time
+import os
+from datetime import datetime
+
+class NetworkCapture:
+    def __init__(self):
+        self.capture_processes = []
+        self.capture_files = []
+        
+    def get_vbox_interfaces(self):
+        """
+        Identify VirtualBox network interfaces for monitoring.
+        
+        Returns:
+            list: Available network interface names
+        
+        TODO: Implement interface discovery using subprocess
+        TODO: Parse 'ip link show' output for vboxnet interfaces
+        TODO: Return list of interface names
+        """
+        pass
+    
+    def start_capture(self, interface, duration=60):
+        """
+        Start packet capture on specified interface.
+        
+        Args:
+            interface: Network interface name
+            duration: Capture duration in seconds
+        
+        Returns:
+            subprocess.Popen: Capture process object
+        
+        TODO: Generate timestamped filename
+        TODO: Build tshark command with parameters
+        TODO: Start capture process and return handle
+        """
+        pass
+    
+    def generate_traffic(self):
+        """
+        Generate network traffic between VMs for testing.
+        
+        TODO: Create list of vagrant ssh commands
+        TODO: Execute ping commands between VMs
+        TODO: Add delays between traffic generation
+        """
+        pass
+    
+    def analyze_captures(self):
+        """
+        Analyze captured packets and display statistics.
+        
+        TODO: Iterate through capture files
+        TODO: Use tshark to extract Ethernet conversations
+        TODO: Display analysis results
+        """
+        pass
+
+if __name__ == "__main__":
+    capture = NetworkCapture()
+    
+    # TODO: Get available interfaces
+    # TODO: Start captures on interfaces
+    # TODO: Generate traffic
+    # TODO: Wait for completion
+    # TODO: Analyze results
+    
+    print("Capture session completed!")
+Step 2.3: Manual Traffic Analysis
+Use tshark to analyze captured packets:
+
+# Capture traffic for 30 seconds
+sudo tshark -i any -w manual_capture.pcap -a duration:30
+
+# Analyze Layer 2 information
+tshark -r manual_capture.pcap -Y "eth" -T fields \
+  -e frame.number -e eth.src -e eth.dst -e ip.src -e ip.dst
+Task 3: Generate Visibility Reports
+Step 3.1: Create Visibility Mapping Script
+Create the main visibility mapping script:
+
+nano visibility_mapper.py
+Add comprehensive starter template:
+
+#!/usr/bin/env python3
+
+import subprocess
+import json
+import csv
+import os
+import re
+from datetime import datetime
+from collections import defaultdict
+
+class PhysicalLayer2Mapper:
+    def __init__(self):
+        self.devices = {}
+        self.connections = []
+        self.mac_to_ip = {}
+        self.network_segments = {}
+        self.traffic_stats = defaultdict(int)
+        
+    def discover_vagrant_topology(self):
+        """
+        Discover Vagrant VM topology and network configuration.
+        
+        TODO: Execute 'vagrant status' command
+        TODO: Parse output to identify running VMs
+        TODO: Call get_vm_network_info() for each VM
+        """
+        pass
+    
+    def get_vm_network_info(self, vm_name):
+        """
+        Get network information for a specific VM.
+        
+        Args:
+            vm_name: Name of the Vagrant VM
+        
+        TODO: SSH into VM and execute 'ip addr show'
+        TODO: Parse network interface information
+        TODO: Store in self.devices dictionary
+        """
+        pass
+    
+    def parse_network_info(self, vm_name, network_output):
+        """
+        Parse network information from VM output.
+        
+        Args:
+            vm_name: VM hostname
+            network_output: Output from ip addr command
+        
+        TODO: Use regex to extract interface names
+        TODO: Parse IP addresses and MAC addresses
+        TODO: Build device information structure
+        TODO: Update self.mac_to_ip mapping
+        """
+        pass
+    
+    def analyze_packet_captures(self):
+        """
+        Analyze packet capture files for Layer 2 information.
+        
+        TODO: Find all .pcap files in directory
+        TODO: Call analyze_single_capture() for each file
+        """
+        pass
+    
+    def analyze_single_capture(self, capture_file):
+        """
+        Analyze a single packet capture file.
+        
+        Args:
+            capture_file: Path to .pcap file
+        
+        TODO: Build tshark command to extract Layer 2 fields
+        TODO: Execute command and capture output
+        TODO: Parse packet data
+        """
+        pass
+    
+    def parse_packet_data(self, packet_data, source_file):
+        """
+        Parse packet data and extract Layer 2 visibility information.
+        
+        Args:
+            packet_data: Raw packet data from tshark
+            source_file: Source capture filename
+        
+        TODO: Split packet data into lines
+        TODO: Extract MAC addresses, IPs, and frame info
+        TODO: Update connections list and traffic statistics
+        """
+        pass
+    
+    def identify_network_segments(self):
+        """
+        Identify network segments based on IP ranges.
+        
+        TODO: Iterate through mac_to_ip mappings
+        TODO: Classify IPs into network segments
+        TODO: Store in self.network_segments dictionary
+        """
+        pass
+    
+    def generate_visibility_report(self):
+        """
+        Generate comprehensive visibility report.
+        
+        Returns:
+            str: Path to generated report file
+        
+        TODO: Create timestamped report filename
+        TODO: Write device discovery section
+        TODO: Write network segments section
+        TODO: Write Layer 2 connections section
+        TODO: Write traffic statistics section
+        TODO: Write summary section
+        """
+        pass
+    
+    def generate_csv_report(self):
+        """
+        Generate CSV report for further analysis.
+        
+        Returns:
+            str: Path to generated CSV file
+        
+        TODO: Create CSV file with headers
+        TODO: Write connection data rows
+        TODO: Include all relevant Layer 2 information
+        """
+        pass
+    
+    def run_full_analysis(self):
+        """
+        Run complete visibility mapping analysis.
+        
+        TODO: Change to lab directory
+        TODO: Call discover_vagrant_topology()
+        TODO: Call analyze_packet_captures()
+        TODO: Call identify_network_segments()
+        TODO: Generate both text and CSV reports
+        """
+        pass
+
+def main():
+    mapper = PhysicalLayer2Mapper()
+    mapper.run_full_analysis()
+
+if __name__ == "__main__":
+    main()
+Step 3.2: Create Dashboard Script
+Create a summary dashboard:
+
+nano dashboard.py
+Add dashboard template:
+
+#!/usr/bin/env python3
+
+import os
+import glob
+from datetime import datetime
+
+def display_dashboard():
+    """
+    Display a summary dashboard of lab results.
+    
+    TODO: Print header with timestamp
+    TODO: Check and display Vagrant status
+    TODO: List all capture files with sizes
+    TODO: List all report files with timestamps
+    TODO: Display summary from latest report
+    """
+    pass
+
+if __name__ == "__main__":
+    display_dashboard()
+Step 3.3: Execute Analysis
+Complete the scripts and run the analysis:
+
+chmod +x visibility_mapper.py dashboard.py
+python3 visibility_mapper.py
+python3 dashboard.py
+Step 3.4: Review Generated Reports
+Examine the output:
+
+# View text report
+cat visibility_report_*.txt
+
+# View CSV data
+head -20 layer2_connections_*.csv
+
+# Count unique MAC addresses
+cut -d',' -f1 layer2_connections_*.csv | sort -u | wc -l
+Expected Outcomes
+Upon completion, you should have:
+
+Three running VMs representing different network segments
+Multiple packet capture files containing Layer 2 traffic
+A comprehensive text report showing:
+Discovered devices with MAC/IP mappings
+Network segment classifications
+Layer 2 connection relationships
+Traffic statistics
+A CSV file for detailed analysis
+Understanding of physical-to-Layer-2 visibility mapping
+Troubleshooting Tips
+Issue: Vagrant VMs fail to start
+
+# Check VirtualBox kernel module
+sudo modprobe vboxdrv
+sudo systemctl restart vboxdrv
+
+# Verify VirtualBox installation
+VBoxManage --version
+Issue: No packets captured
+
+# Verify interface is correct
+ip link show
+
+# Run tshark with elevated privileges
+sudo tshark -i any -c 10
+
+# Check VirtualBox network settings
+VBoxManage list hostonlyifs
+Issue: Cannot SSH into VMs
+
+# Check VM status
+vagrant status
+
+# Reload specific VM
+vagrant reload webserver
+
+# Check SSH configuration
+vagrant ssh-config webserver
+Issue: Python script errors
+
+# Verify Python version
+python3 --version
+
+# Install missing dependencies
+pip3 install --user scapy
+
+# Check file permissions
+chmod +x *.py
+Conclusion
+This lab demonstrated the critical relationship between physical network infrastructure and Layer 2 communications. You deployed a hybrid network environment, captured real traffic at the data link layer, and developed automated tools for visibility mapping. These skills are essential for network security assessment, troubleshooting, and infrastructure documentation.
+
+Key takeaways:
+
+Layer 2 visibility provides foundational network intelligence
+Automated capture and analysis scales security operations
+MAC-to-IP mapping reveals device relationships
+Network segmentation is visible at Layer 2
+Python automation enhances network visibility capabilities
+Clean up your environment when finished:
+
+cd ~/lab4-network-visibility
+vagrant destroy -f
