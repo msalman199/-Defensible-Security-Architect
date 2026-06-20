@@ -1,0 +1,597 @@
+ Darknet Monitoring with OpenCanary
+Objectives
+By the end of this lab, students will be able to:
+
+Deploy and configure OpenCanary honeypot for network monitoring
+Analyze security alerts and identify attack patterns
+Correlate alerts with threat intelligence data
+Implement automated threat detection mechanisms
+Generate comprehensive security reports
+Prerequisites
+Basic Linux command line proficiency
+Understanding of networking concepts (IP, ports, protocols)
+Python programming fundamentals
+Basic cybersecurity knowledge (honeypots, threat detection)
+Lab Environment
+Al Nafi provides pre-configured Linux cloud machines. Click Start Lab to access your environment with:
+
+Ubuntu 22.04 LTS
+Python 3.10+
+Pre-installed dependencies
+Text editors (nano, vim)
+Task 1: Deploy OpenCanary Honeypot
+Step 1: Install OpenCanary
+# Update system and install dependencies
+sudo apt update && sudo apt install python3-pip python3-venv libssl-dev -y
+
+# Create virtual environment
+python3 -m venv ~/opencanary-env
+source ~/opencanary-env/bin/activate
+
+# Install OpenCanary
+pip install opencanary
+Step 2: Configure OpenCanary
+# Generate default configuration
+opencanaryd --copyconfig
+
+# Create working directory
+mkdir -p ~/opencanary-config ~/opencanary-logs
+
+# Copy configuration
+cp ~/.opencanary.conf ~/opencanary-config/opencanary.conf
+Edit the configuration file:
+
+nano ~/opencanary-config/opencanary.conf
+Key configuration settings to modify:
+
+{
+    "device.node_id": "darknet-monitor-01",
+    "ftp.enabled": true,
+    "ftp.port": 21,
+    "http.enabled": true,
+    "http.port": 80,
+    "ssh.enabled": true,
+    "ssh.port": 2222,
+    "telnet.enabled": true,
+    "telnet.port": 23,
+    "mysql.enabled": true,
+    "mysql.port": 3306,
+    "logger": {
+        "class": "PyLogger",
+        "kwargs": {
+            "handlers": {
+                "file": {
+                    "class": "logging.FileHandler",
+                    "filename": "/home/ubuntu/opencanary-logs/opencanary.log"
+                }
+            }
+        }
+    }
+}
+Step 3: Start OpenCanary
+# Start the honeypot
+opencanaryd --start --config ~/opencanary-config/opencanary.conf
+
+# Verify it's running
+ps aux | grep opencanary
+
+# Monitor logs
+tail -f ~/opencanary-logs/opencanary.log
+Step 4: Generate Test Traffic
+Open a new terminal and generate sample alerts:
+
+# Test SSH (use port 2222 as configured)
+ssh admin@localhost -p 2222
+
+# Test HTTP
+curl http://localhost
+
+# Test Telnet
+telnet localhost 23
+
+# Test FTP
+ftp localhost
+Task 2: Create Real-Time Log Monitor
+Step 1: Build Log Monitor Script
+Create ~/log_monitor.py:
+
+#!/usr/bin/env python3
+
+import json
+import time
+import os
+import re
+from datetime import datetime
+
+class OpenCanaryLogMonitor:
+    def __init__(self, log_file_path):
+        self.log_file_path = log_file_path
+        self.alert_count = 0
+        self.unique_ips = set()
+        self.service_attacks = {}
+        
+    def parse_log_line(self, line):
+        """
+        Parse OpenCanary log line and extract JSON data.
+        
+        Args:
+            line: Raw log line string
+            
+        Returns:
+            Dictionary with parsed alert data or None
+        """
+        # TODO: Use regex to find JSON data in log line
+        # TODO: Parse JSON and return as dictionary
+        # TODO: Handle JSON decode errors
+        pass
+    
+    def analyze_alert(self, alert_data):
+        """
+        Extract key information from alert data.
+        
+        Args:
+            alert_data: Dictionary with alert information
+            
+        Returns:
+            Dictionary with analyzed alert details
+        """
+        # TODO: Extract timestamp, source IP, port, service
+        # TODO: Extract additional log data
+        # TODO: Return structured analysis dictionary
+        pass
+    
+    def display_alert(self, analysis):
+        """
+        Display formatted alert and update statistics.
+        
+        Args:
+            analysis: Dictionary with alert analysis
+        """
+        # TODO: Print formatted alert information
+        # TODO: Update alert_count
+        # TODO: Add source IP to unique_ips set
+        # TODO: Update service_attacks counter
+        pass
+    
+    def display_statistics(self):
+        """Display current monitoring statistics."""
+        # TODO: Print total alerts
+        # TODO: Print unique source IPs count
+        # TODO: Print service attack breakdown
+        pass
+    
+    def monitor_logs(self):
+        """Main monitoring loop - reads log file continuously."""
+        print(f"Monitoring: {self.log_file_path}")
+        
+        # TODO: Open log file and seek to end
+        # TODO: Continuously read new lines
+        # TODO: Parse and display alerts
+        # TODO: Handle KeyboardInterrupt gracefully
+        pass
+
+if __name__ == "__main__":
+    log_file = "/home/ubuntu/opencanary-logs/opencanary.log"
+    monitor = OpenCanaryLogMonitor(log_file)
+    monitor.monitor_logs()
+Step 2: Run the Monitor
+chmod +x ~/log_monitor.py
+python3 ~/log_monitor.py
+Task 3: Build Alert Analysis Dashboard
+Step 1: Create Analysis Script
+Create ~/alert_analyzer.py:
+
+#!/usr/bin/env python3
+
+import json
+import re
+import os
+from datetime import datetime
+from collections import defaultdict, Counter
+
+class OpenCanaryAlertAnalyzer:
+    def __init__(self, log_file_path):
+        self.log_file_path = log_file_path
+        self.alerts = []
+        self.load_alerts()
+    
+    def load_alerts(self):
+        """Load all alerts from log file into memory."""
+        # TODO: Read log file line by line
+        # TODO: Parse JSON from each line
+        # TODO: Append to self.alerts list
+        pass
+    
+    def analyze_by_time(self):
+        """
+        Analyze alerts by time periods (hourly and daily).
+        Display top active hours and daily trends.
+        """
+        # TODO: Create hourly and daily counters
+        # TODO: Parse timestamps and group alerts
+        # TODO: Display top 10 most active hours
+        # TODO: Display daily activity summary
+        pass
+    
+    def analyze_by_source(self):
+        """
+        Analyze alerts by source IP address.
+        Show most active IPs and targeted services.
+        """
+        # TODO: Count alerts per source IP
+        # TODO: Track services targeted by each IP
+        # TODO: Display top 10 most active IPs
+        pass
+    
+    def analyze_by_service(self):
+        """
+        Analyze alerts by targeted service.
+        Show which services are under attack.
+        """
+        # TODO: Count alerts per service type
+        # TODO: Track ports for each service
+        # TODO: Display service attack statistics
+        pass
+    
+    def analyze_attack_patterns(self):
+        """
+        Identify attack patterns and sequences.
+        Group attacks by source IP and show sequences.
+        """
+        # TODO: Group alerts by source IP
+        # TODO: Sort attacks by timestamp
+        # TODO: Identify multi-stage attack patterns
+        # TODO: Display attack sequences
+        pass
+    
+    def generate_threat_report(self):
+        """
+        Generate comprehensive threat assessment report.
+        Include risk scoring and recommendations.
+        """
+        # TODO: Calculate total alerts, unique IPs, services
+        # TODO: Determine time range of attacks
+        # TODO: Assess risk level (HIGH/MEDIUM/LOW)
+        # TODO: Generate security recommendations
+        pass
+    
+    def run_full_analysis(self):
+        """Execute complete analysis suite."""
+        print(f"Analyzing {len(self.alerts)} alerts")
+        self.analyze_by_time()
+        self.analyze_by_source()
+        self.analyze_by_service()
+        self.analyze_attack_patterns()
+        self.generate_threat_report()
+
+if __name__ == "__main__":
+    analyzer = OpenCanaryAlertAnalyzer("/home/ubuntu/opencanary-logs/opencanary.log")
+    analyzer.run_full_analysis()
+Step 2: Execute Analysis
+chmod +x ~/alert_analyzer.py
+python3 ~/alert_analyzer.py
+Task 4: Implement Threat Intelligence Correlation
+Step 1: Create Threat Intelligence Database
+Create ~/threat_intelligence.py:
+
+#!/usr/bin/env python3
+
+import sqlite3
+import json
+
+class ThreatIntelligenceDB:
+    def __init__(self, db_path="threat_intel.db"):
+        self.db_path = db_path
+        self.init_database()
+        self.load_sample_data()
+    
+    def init_database(self):
+        """
+        Initialize SQLite database with required tables.
+        Tables: malicious_ips, attack_patterns, threat_actors
+        """
+        # TODO: Create connection to SQLite database
+        # TODO: Create malicious_ips table (ip, threat_type, actor, etc.)
+        # TODO: Create attack_patterns table (pattern_name, services, etc.)
+        # TODO: Create threat_actors table (actor_name, country, etc.)
+        # TODO: Commit and close connection
+        pass
+    
+    def load_sample_data(self):
+        """
+        Populate database with sample threat intelligence.
+        Use private IP ranges for safety.
+        """
+        # TODO: Insert sample malicious IPs (192.168.x.x, 10.x.x.x)
+        # TODO: Insert known threat actors (APT groups, etc.)
+        # TODO: Insert attack patterns (SSH brute force, etc.)
+        pass
+    
+    def lookup_ip(self, ip_address):
+        """
+        Query database for IP address threat intelligence.
+        
+        Args:
+            ip_address: IP address to lookup
+            
+        Returns:
+            Dictionary with threat data or None
+        """
+        # TODO: Query malicious_ips table
+        # TODO: Return threat information if found
+        pass
+    
+    def get_threat_actor_info(self, actor_name):
+        """
+        Retrieve detailed threat actor information.
+        
+        Args:
+            actor_name: Name of threat actor
+            
+        Returns:
+            Dictionary with actor details
+        """
+        # TODO: Query threat_actors table
+        # TODO: Return actor information
+        pass
+    
+    def find_attack_patterns(self, services_attacked):
+        """
+        Match attack patterns based on services targeted.
+        
+        Args:
+            services_attacked: List of service names
+            
+        Returns:
+            List of matching attack patterns
+        """
+        # TODO: Query attack_patterns table
+        # TODO: Match patterns with services
+        # TODO: Return list of matching patterns
+        pass
+
+if __name__ == "__main__":
+    ti_db = ThreatIntelligenceDB()
+    print("Threat intelligence database initialized")
+Step 2: Build Correlation Engine
+Create ~/alert_correlator.py:
+
+#!/usr/bin/env python3
+
+import json
+import re
+import os
+from datetime import datetime
+from collections import defaultdict
+from threat_intelligence import ThreatIntelligenceDB
+
+class AlertCorrelator:
+    def __init__(self, log_file_path, ti_db_path="threat_intel.db"):
+        self.log_file_path = log_file_path
+        self.ti_db = ThreatIntelligenceDB(ti_db_path)
+        self.alerts = []
+        self.correlations = []
+        self.load_alerts()
+    
+    def load_alerts(self):
+        """Load alerts from OpenCanary log file."""
+        # TODO: Read and parse log file
+        # TODO: Store alerts in self.alerts list
+        pass
+    
+    def correlate_with_threat_intel(self):
+        """
+        Correlate alerts with threat intelligence database.
+        Match source IPs and identify known threats.
+        """
+        # TODO: Iterate through alerts
+        # TODO: Lookup each source IP in threat intel DB
+        # TODO: Create correlation records for matches
+        # TODO: Calculate risk scores
+        pass
+    
+    def identify_attack_campaigns(self):
+        """
+        Group related alerts into attack campaigns.
+        Identify coordinated attacks from same actor.
+        """
+        # TODO: Group alerts by source IP and time window
+        # TODO: Identify multi-service attacks
+        # TODO: Match against known attack patterns
+        # TODO: Generate campaign summaries
+        pass
+    
+    def calculate_risk_scores(self):
+        """
+        Calculate risk scores for each alert.
+        Consider: threat intel confidence, service criticality, frequency.
+        """
+        # TODO: Assign base scores to services
+        # TODO: Factor in threat intelligence confidence
+        # TODO: Adjust for attack frequency
+        # TODO: Return prioritized alert list
+        pass
+    
+    def generate_correlation_report(self):
+        """
+        Generate comprehensive correlation report.
+        Include matched threats, campaigns, and recommendations.
+        """
+        # TODO: Summarize correlated alerts
+        # TODO: List identified threat actors
+        # TODO: Describe attack campaigns
+        # TODO: Provide actionable recommendations
+        pass
+    
+    def run_correlation(self):
+        """Execute full correlation analysis."""
+        print("Starting threat intelligence correlation...")
+        self.correlate_with_threat_intel()
+        self.identify_attack_campaigns()
+        self.calculate_risk_scores()
+        self.generate_correlation_report()
+
+if __name__ == "__main__":
+    correlator = AlertCorrelator("/home/ubuntu/opencanary-logs/opencanary.log")
+    correlator.run_correlation()
+Step 3: Run Correlation Analysis
+# Initialize threat intelligence database
+python3 ~/threat_intelligence.py
+
+# Run correlation analysis
+python3 ~/alert_correlator.py
+Task 5: Implement Automated Response
+Step 1: Create Response Automation Script
+Create ~/automated_response.py:
+
+#!/usr/bin/env python3
+
+import json
+import subprocess
+import smtplib
+from email.mime.text import MIMEText
+from datetime import datetime
+
+class AutomatedResponseSystem:
+    def __init__(self, config_file="response_config.json"):
+        self.config = self.load_config(config_file)
+        self.blocked_ips = set()
+        self.alert_threshold = 5
+    
+    def load_config(self, config_file):
+        """
+        Load response configuration from JSON file.
+        
+        Returns:
+            Dictionary with configuration settings
+        """
+        # TODO: Load JSON configuration
+        # TODO: Set default values if file not found
+        pass
+    
+    def block_ip_address(self, ip_address):
+        """
+        Block IP address using iptables.
+        
+        Args:
+            ip_address: IP to block
+        """
+        # TODO: Check if IP already blocked
+        # TODO: Execute iptables command to block IP
+        # TODO: Add IP to blocked_ips set
+        # TODO: Log blocking action
+        pass
+    
+    def send_alert_email(self, alert_data):
+        """
+        Send email notification for high-priority alerts.
+        
+        Args:
+            alert_data: Dictionary with alert information
+        """
+        # TODO: Format email message
+        # TODO: Connect to SMTP server
+        # TODO: Send email notification
+        pass
+    
+    def log_response_action(self, action_type, details):
+        """
+        Log automated response actions.
+        
+        Args:
+            action_type: Type of action taken
+            details: Action details
+        """
+        # TODO: Format log entry
+        # TODO: Write to response log file
+        pass
+    
+    def evaluate_alert(self, alert):
+        """
+        Evaluate alert and determine appropriate response.
+        
+        Args:
+            alert: Alert dictionary
+            
+        Returns:
+            Response action to take
+        """
+        # TODO: Check alert severity
+        # TODO: Check if IP has exceeded threshold
+        # TODO: Determine response action (block, alert, log)
+        pass
+    
+    def process_alerts(self, alerts):
+        """
+        Process list of alerts and execute responses.
+        
+        Args:
+            alerts: List of alert dictionaries
+        """
+        # TODO: Iterate through alerts
+        # TODO: Evaluate each alert
+        # TODO: Execute appropriate responses
+        # TODO: Generate response summary
+        pass
+
+if __name__ == "__main__":
+    response_system = AutomatedResponseSystem()
+    print("Automated response system initialized")
+Step 2: Create Response Configuration
+Create ~/response_config.json:
+
+{
+    "email_notifications": {
+        "enabled": false,
+        "smtp_server": "smtp.example.com",
+        "smtp_port": 587,
+        "from_address": "alerts@example.com",
+        "to_addresses": ["admin@example.com"]
+    },
+    "ip_blocking": {
+        "enabled": true,
+        "threshold": 5,
+        "whitelist": ["127.0.0.1", "192.168.1.1"]
+    },
+    "logging": {
+        "response_log": "/home/ubuntu/opencanary-logs/responses.log"
+    }
+}
+Step 3: Test Response System
+python3 ~/automated_response.py
+Expected Outcomes
+After completing this lab, you should have:
+
+Functional OpenCanary honeypot monitoring network traffic
+Real-time log monitoring system displaying alerts
+Comprehensive alert analysis dashboard
+Threat intelligence correlation engine
+Automated response system for high-risk alerts
+Understanding of darknet monitoring concepts
+Troubleshooting Tips
+OpenCanary won't start:
+
+Check if ports are already in use: sudo netstat -tulpn | grep <port>
+Verify configuration file syntax (valid JSON)
+Check log file permissions: ls -l ~/opencanary-logs/
+No alerts appearing:
+
+Verify OpenCanary is running: ps aux | grep opencanary
+Check firewall rules: sudo iptables -L
+Generate test traffic from different terminal
+Database errors:
+
+Ensure SQLite3 is installed: sudo apt install sqlite3
+Check file permissions on database file
+Delete and reinitialize database if corrupted
+Conclusion
+This lab introduced darknet monitoring using OpenCanary honeypot technology. You deployed a honeypot, monitored network traffic, analyzed security alerts, and correlated findings with threat intelligence. These skills are essential for proactive threat detection and security monitoring in production environments.
+
+Key takeaways:
+
+Honeypots provide early warning of malicious activity
+Log analysis reveals attack patterns and trends
+Threat intelligence correlation identifies known adversaries
+Automated responses reduce incident response time
+Continuous monitoring is critical for network security
+Continue practicing by expanding the threat intelligence database, implementing additional response actions, and integrating with SIEM systems.
