@@ -1,0 +1,582 @@
+Build Reverse Proxy WAF with Nginx & ModSecurity
+Objectives
+By the end of this lab, you will be able to:
+
+Configure Nginx as a reverse proxy to protect backend applications
+Install and integrate ModSecurity WAF with Nginx
+Implement OWASP Core Rule Set (CRS) for application-layer protection
+Create custom WAF rules to block specific attack patterns
+Automate WAF management using Python scripts
+Test WAF effectiveness against common web attacks
+Prerequisites
+Basic understanding of web servers and HTTP protocols
+Familiarity with Linux command line operations
+Knowledge of common web vulnerabilities (SQL injection, XSS)
+Basic Python programming skills
+Lab Environment
+Al Nafi provides a ready-to-use Ubuntu 22.04 LTS cloud machine. Click Start Lab to access your pre-configured environment with:
+
+Ubuntu 22.04 LTS with root access
+Internet connectivity for package downloads
+Pre-installed Python 3 and development tools
+4GB RAM and 20GB storage
+Task 1: Configure Nginx as a Reverse Proxy
+Step 1: Install Nginx and Create Backend Application
+# Update and install packages
+sudo apt update
+sudo apt install -y nginx python3-pip curl
+
+# Install Flask for backend application
+pip3 install flask
+
+# Create application directory
+sudo mkdir -p /opt/webapp
+Create a simple vulnerable backend application:
+
+sudo nano /opt/webapp/app.py
+Add the following starter code (students will enhance it):
+
+#!/usr/bin/env python3
+from flask import Flask, request, render_template_string
+
+app = Flask(__name__)
+
+# TODO: Create HTML template with search form and login form
+template = '''
+<!DOCTYPE html>
+<html>
+<head><title>Backend App</title></head>
+<body>
+    <h1>Vulnerable Web Application</h1>
+    <!-- TODO: Add search form with GET method -->
+    <!-- TODO: Add login form with POST method -->
+    <!-- TODO: Display search results using {{ query|safe }} -->
+</body>
+</html>
+'''
+
+@app.route('/')
+def home():
+    # TODO: Render template
+    pass
+
+@app.route('/search')
+def search():
+    # TODO: Get query parameter and render results
+    pass
+
+@app.route('/login', methods=['POST'])
+def login():
+    # TODO: Process login form data
+    pass
+
+@app.route('/admin')
+def admin():
+    # TODO: Return admin panel HTML
+    pass
+
+if __name__ == '__main__':
+    app.run(host='127.0.0.1', port=8080)
+Create systemd service:
+
+sudo nano /etc/systemd/system/webapp.service
+[Unit]
+Description=Backend Web Application
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/webapp
+ExecStart=/usr/bin/python3 /opt/webapp/app.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+# Set permissions and start service
+sudo chown -R www-data:www-data /opt/webapp
+sudo systemctl daemon-reload
+sudo systemctl start webapp
+sudo systemctl enable webapp
+Step 2: Configure Nginx Reverse Proxy
+sudo nano /etc/nginx/sites-available/waf-proxy
+upstream backend {
+    server 127.0.0.1:8080;
+}
+
+server {
+    listen 80;
+    server_name localhost;
+    
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    
+    # Logging
+    access_log /var/log/nginx/waf-proxy.access.log;
+    error_log /var/log/nginx/waf-proxy.error.log;
+    
+    location / {
+        proxy_pass http://backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+# Enable site and reload
+sudo ln -sf /etc/nginx/sites-available/waf-proxy /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t
+sudo systemctl reload nginx
+Step 3: Test Reverse Proxy
+# Test normal request
+curl http://localhost/
+
+# Test potentially malicious request (should work without WAF)
+curl "http://localhost/search?q=<script>alert('xss')</script>"
+Task 2: Integrate ModSecurity WAF
+Step 1: Install ModSecurity
+# Install ModSecurity and dependencies
+sudo apt install -y libmodsecurity3 libmodsecurity-dev nginx-module-modsecurity
+
+# Create directories
+sudo mkdir -p /etc/nginx/modsec
+sudo mkdir -p /var/log/modsec
+Step 2: Configure ModSecurity
+sudo nano /etc/nginx/modsec/modsecurity.conf
+# Enable ModSecurity
+SecRuleEngine On
+
+# Request body handling
+SecRequestBodyAccess On
+SecRequestBodyLimit 13107200
+SecRequestBodyNoFilesLimit 131072
+
+# Response body handling
+SecResponseBodyAccess On
+SecResponseBodyLimit 524288
+
+# Temporary directories
+SecTmpDir /tmp/
+SecDataDir /tmp/
+
+# Audit logging
+SecAuditEngine RelevantOnly
+SecAuditLogRelevantStatus "^(?:5|4(?!04))"
+SecAuditLogType Serial
+SecAuditLog /var/log/modsec/audit.log
+
+# Include OWASP CRS
+Include /etc/nginx/modsec/crs-setup.conf
+Include /etc/nginx/modsec/rules/*.conf
+Step 3: Install OWASP Core Rule Set
+# Download OWASP CRS
+cd /tmp
+wget https://github.com/coreruleset/coreruleset/archive/refs/tags/v4.0.0.tar.gz
+tar -xzf v4.0.0.tar.gz
+
+# Copy to ModSecurity directory
+sudo cp -r coreruleset-4.0.0/rules /etc/nginx/modsec/
+sudo cp coreruleset-4.0.0/crs-setup.conf.example /etc/nginx/modsec/crs-setup.conf
+
+# Set permissions
+sudo chown -R www-data:www-data /etc/nginx/modsec
+sudo chown -R www-data:www-data /var/log/modsec
+Configure CRS settings:
+
+sudo nano /etc/nginx/modsec/crs-setup.conf
+# Set paranoia level (1-4)
+SecAction \
+  "id:900000,\
+   phase:1,\
+   nolog,\
+   pass,\
+   setvar:tx.paranoia_level=2"
+
+# Anomaly scoring threshold
+SecAction \
+  "id:900110,\
+   phase:1,\
+   nolog,\
+   pass,\
+   setvar:tx.inbound_anomaly_score_threshold=5"
+Step 4: Create Custom WAF Rules
+sudo mkdir -p /etc/nginx/modsec/custom-rules
+sudo nano /etc/nginx/modsec/custom-rules/custom.conf
+# Block admin path access
+SecRule REQUEST_URI "@beginsWith /admin" \
+    "id:1001,\
+     phase:1,\
+     block,\
+     msg:'Admin access blocked',\
+     tag:'custom/admin-block'"
+
+# Enhanced SQL injection detection
+SecRule ARGS "@detectSQLi" \
+    "id:1002,\
+     phase:2,\
+     block,\
+     msg:'SQL Injection detected',\
+     tag:'custom/sqli'"
+
+# Rate limiting per IP
+SecAction \
+    "id:1004,\
+     phase:1,\
+     nolog,\
+     pass,\
+     initcol:ip=%{REMOTE_ADDR},\
+     setvar:ip.requests=+1,\
+     expirevar:ip.requests=60"
+
+SecRule IP:REQUESTS "@gt 60" \
+    "id:1005,\
+     phase:1,\
+     block,\
+     msg:'Rate limit exceeded',\
+     tag:'custom/rate-limit'"
+# Include custom rules
+echo "Include /etc/nginx/modsec/custom-rules/*.conf" | sudo tee -a /etc/nginx/modsec/modsecurity.conf
+Step 5: Enable ModSecurity in Nginx
+# Load ModSecurity module
+sudo nano /etc/nginx/modules-enabled/50-mod-modsecurity.conf
+load_module modules/ngx_http_modsecurity_module.so;
+Update Nginx configuration:
+
+sudo nano /etc/nginx/sites-available/waf-proxy
+Add these lines inside the server block:
+
+    # Enable ModSecurity
+    modsecurity on;
+    modsecurity_rules_file /etc/nginx/modsec/modsecurity.conf;
+# Test and restart Nginx
+sudo nginx -t
+sudo systemctl restart nginx
+Step 6: Test WAF Functionality
+# Normal request (should work)
+curl http://localhost/
+
+# XSS attack (should be blocked)
+curl "http://localhost/search?q=<script>alert('xss')</script>"
+
+# SQL injection (should be blocked)
+curl "http://localhost/search?q=' OR '1'='1"
+
+# Admin access (should be blocked)
+curl http://localhost/admin
+
+# Check audit logs
+sudo tail -20 /var/log/modsec/audit.log
+Task 3: Automate WAF Management with Python
+Step 1: Create WAF Manager Script
+mkdir -p /opt/waf-manager
+cd /opt/waf-manager
+pip3 install requests
+Create the management script:
+
+nano waf_manager.py
+#!/usr/bin/env python3
+"""
+WAF Manager - Automated ModSecurity Rule Management
+Students: Complete the TODO sections
+"""
+
+import os
+import sys
+import json
+import subprocess
+import re
+from datetime import datetime, timedelta
+import argparse
+import logging
+
+class WAFManager:
+    def __init__(self):
+        self.modsec_config = "/etc/nginx/modsec/modsecurity.conf"
+        self.custom_rules_path = "/etc/nginx/modsec/custom-rules"
+        self.audit_log = "/var/log/modsec/audit.log"
+        
+        # Setup logging
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s'
+        )
+        self.logger = logging.getLogger(__name__)
+    
+    def reload_nginx(self):
+        """Reload Nginx configuration"""
+        try:
+            # TODO: Test nginx configuration with subprocess
+            # TODO: Reload nginx if test passes
+            # TODO: Return True on success, False on failure
+            pass
+        except Exception as e:
+            self.logger.error(f"Failed to reload: {e}")
+            return False
+    
+    def add_ip_block_rule(self, ip_address, reason="Manual block"):
+        """
+        Add IP blocking rule to custom rules
+        
+        Args:
+            ip_address: IP to block
+            reason: Reason for blocking
+        
+        Returns:
+            Boolean indicating success
+        """
+        # TODO: Generate unique rule ID
+        # TODO: Create SecRule for IP blocking
+        # TODO: Append to custom rules file
+        # TODO: Call reload_nginx()
+        pass
+    
+    def add_custom_rule(self, rule_name, pattern, action="block"):
+        """
+        Add custom pattern matching rule
+        
+        Args:
+            rule_name: Descriptive name for the rule
+            pattern: Regex pattern to match
+            action: Action to take (block, deny, drop)
+        """
+        # TODO: Generate unique rule ID
+        # TODO: Create SecRule with pattern matching
+        # TODO: Write to custom rules file
+        # TODO: Reload Nginx
+        pass
+    
+    def analyze_audit_log(self, hours=24):
+        """
+        Analyze ModSecurity audit log for threats
+        
+        Args:
+            hours: Number of hours to analyze
+        
+        Returns:
+            List of threat dictionaries
+        """
+        threats = []
+        cutoff_time = datetime.now() - timedelta(hours=hours)
+        
+        try:
+            # TODO: Read audit log file
+            # TODO: Parse log entries using regex
+            # TODO: Extract IP, rule ID, message, URI
+            # TODO: Filter by time range
+            # TODO: Return list of threat dictionaries
+            pass
+        except Exception as e:
+            self.logger.error(f"Log analysis failed: {e}")
+            return []
+    
+    def get_top_attackers(self, hours=24, limit=10):
+        """
+        Get top attacking IPs from logs
+        
+        Returns:
+            List of tuples (ip, count)
+        """
+        # TODO: Call analyze_audit_log()
+        # TODO: Count attacks per IP
+        # TODO: Sort by count descending
+        # TODO: Return top N attackers
+        pass
+    
+    def auto_block_attackers(self, threshold=10, hours=1):
+        """
+        Automatically block IPs exceeding attack threshold
+        
+        Args:
+            threshold: Number of attacks to trigger block
+            hours: Time window for counting attacks
+        
+        Returns:
+            List of blocked IPs
+        """
+        # TODO: Get attack counts per IP
+        # TODO: For IPs exceeding threshold, call add_ip_block_rule()
+        # TODO: Return list of blocked IPs
+        pass
+    
+    def generate_report(self, hours=24):
+        """
+        Generate comprehensive security report
+        
+        Returns:
+            Dictionary with report data
+        """
+        # TODO: Analyze threats
+        # TODO: Get top attackers
+        # TODO: Categorize threats by type
+        # TODO: Return report dictionary with:
+        #   - total_threats
+        #   - unique_attackers
+        #   - top_attackers
+        #   - threat_types
+        pass
+    
+    def test_waf(self):
+        """
+        Test WAF with various attack patterns
+        
+        Returns:
+            List of test results
+        """
+        import requests
+        
+        tests = [
+            {'name': 'XSS', 'url': 'http://localhost/search?q=<script>alert(1)</script>', 'expect': 403},
+            {'name': 'SQLi', 'url': 'http://localhost/search?q=\' OR 1=1--', 'expect': 403},
+            {'name': 'Admin', 'url': 'http://localhost/admin', 'expect': 403},
+            {'name': 'Normal', 'url': 'http://localhost/', 'expect': 200}
+        ]
+        
+        results = []
+        # TODO: Loop through tests
+        # TODO: Make HTTP request for each test
+        # TODO: Compare status code with expected
+        # TODO: Append result to results list
+        # TODO: Return results
+        pass
+
+def main():
+    parser = argparse.ArgumentParser(description='WAF Manager')
+    parser.add_argument('action', choices=['block-ip', 'add-rule', 'analyze', 'report', 'auto-block', 'test'])
+    parser.add_argument('--ip', help='IP address to block')
+    parser.add_argument('--name', help='Rule name')
+    parser.add_argument('--pattern', help='Pattern to match')
+    parser.add_argument('--hours', type=int, default=24, help='Hours to analyze')
+    parser.add_argument('--threshold', type=int, default=10, help='Attack threshold')
+    
+    args = parser.parse_args()
+    waf = WAFManager()
+    
+    # TODO: Implement action handlers
+    if args.action == 'block-ip':
+        # TODO: Call add_ip_block_rule with args.ip
+        pass
+    elif args.action == 'add-rule':
+        # TODO: Call add_custom_rule with args.name and args.pattern
+        pass
+    elif args.action == 'analyze':
+        # TODO: Call analyze_audit_log and print results
+        pass
+    elif args.action == 'report':
+        # TODO: Call generate_report and print JSON
+        pass
+    elif args.action == 'auto-block':
+        # TODO: Call auto_block_attackers
+        pass
+    elif args.action == 'test':
+        # TODO: Call test_waf and print results
+        pass
+
+if __name__ == '__main__':
+    main()
+# Make executable
+chmod +x waf_manager.py
+Step 2: Test WAF Manager
+# Test WAF rules
+sudo python3 waf_manager.py test
+
+# Analyze logs
+sudo python3 waf_manager.py analyze --hours 1
+
+# Generate report
+sudo python3 waf_manager.py report --hours 24
+
+# Block specific IP
+sudo python3 waf_manager.py block-ip --ip 192.168.1.100
+
+# Auto-block attackers
+sudo python3 waf_manager.py auto-block --threshold 5 --hours 1
+Step 3: Create Monitoring Script
+nano monitor_waf.py
+#!/usr/bin/env python3
+"""
+Real-time WAF monitoring script
+Students: Complete the implementation
+"""
+
+import time
+import subprocess
+from datetime import datetime
+
+def monitor_logs():
+    """
+    Monitor ModSecurity audit log in real-time
+    """
+    # TODO: Use subprocess to tail audit log
+    # TODO: Parse each new line for threats
+    # TODO: Print formatted threat information
+    # TODO: Optionally trigger alerts
+    pass
+
+def check_nginx_status():
+    """Check if Nginx is running"""
+    # TODO: Use subprocess to check systemctl status
+    # TODO: Return True if running, False otherwise
+    pass
+
+def get_blocked_requests_count():
+    """Count blocked requests in last hour"""
+    # TODO: Parse audit log
+    # TODO: Count entries with block action
+    # TODO: Return count
+    pass
+
+if __name__ == '__main__':
+    print("Starting WAF Monitor...")
+    # TODO: Implement monitoring loop
+    # TODO: Check status every 60 seconds
+    # TODO: Display statistics
+    pass
+Expected Outcomes
+After completing this lab, you should have:
+
+A functioning Nginx reverse proxy protecting a backend application
+ModSecurity WAF integrated with OWASP CRS rules
+Custom WAF rules blocking specific attack patterns
+Python scripts for automated WAF management
+Ability to analyze security logs and identify threats
+Working knowledge of WAF testing and validation
+Troubleshooting Tips
+Issue: ModSecurity not blocking attacks
+
+Verify SecRuleEngine On in modsecurity.conf
+Check that ModSecurity module is loaded: nginx -V 2>&1 | grep modsecurity
+Review audit log for rule matches: sudo tail -f /var/log/modsec/audit.log
+Issue: Nginx fails to start after ModSecurity configuration
+
+Test configuration: sudo nginx -t
+Check for syntax errors in rule files
+Verify file permissions: ls -la /etc/nginx/modsec/
+Review error log: sudo tail -f /var/log/nginx/error.log
+Issue: Backend application not accessible
+
+Verify backend is running: sudo systemctl status webapp
+Check if port 8080 is listening: sudo netstat -tlnp | grep 8080
+Test direct backend access: curl http://127.0.0.1:8080/
+Issue: Python script permission errors
+
+Run with sudo for system file access
+Check file ownership: ls -la /etc/nginx/modsec/
+Verify log file permissions: ls -la /var/log/modsec/
+Conclusion
+In this lab, you configured a production-ready WAF solution using Nginx and ModSecurity. You learned to:
+
+Deploy reverse proxy architecture for application protection
+Implement industry-standard OWASP CRS rules
+Create custom security rules for specific threats
+Automate WAF management and monitoring with Python
+Analyze security logs to identify attack patterns
+This setup provides a strong foundation for protecting web applications against common attacks including SQL injection, XSS, and malicious bot traffic. Continue enhancing your WAF by tuning rules based on your application's specific needs and monitoring threat patterns over time.
+
+Next Steps:
+
+Implement SSL/TLS termination at the proxy layer
+Configure geographic IP blocking
+Set up automated alerting for critical threats
+Integrate with SIEM systems for centralized logging
+Explore advanced rate limiting and bot detection
