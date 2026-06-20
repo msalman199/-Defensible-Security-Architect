@@ -1,0 +1,519 @@
+ Baseline Environment with Zeek + NetFlow Logs
+Objectives
+By the end of this lab, students will be able to:
+
+Install and configure Zeek for network traffic monitoring
+Set up NetFlow collection using nfcapd and softflowd
+Establish baseline network behavior from traffic data
+Develop Python scripts to detect network anomalies
+Correlate Zeek and NetFlow data for comprehensive security analysis
+Prerequisites
+Basic understanding of TCP/IP networking and common protocols
+Linux command line proficiency
+Python programming fundamentals
+Familiarity with network security concepts
+Lab Environment
+Al Nafi provides pre-configured Ubuntu cloud machines. Click Start Lab to access your environment with all necessary tools pre-installed.
+
+Task 1: Install and Configure Zeek
+Step 1.1: Install Zeek
+# Update system and install dependencies
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y cmake make gcc g++ flex bison libpcap-dev libssl-dev python3-dev swig zlib1g-dev
+
+# Download and install Zeek
+cd /tmp
+wget https://download.zeek.org/zeek-5.0.0.tar.gz
+tar -xzf zeek-5.0.0.tar.gz
+cd zeek-5.0.0
+
+# Configure, compile, and install
+./configure --prefix=/opt/zeek
+make -j$(nproc)
+sudo make install
+
+# Add to PATH
+echo 'export PATH=/opt/zeek/bin:$PATH' >> ~/.bashrc
+source ~/.bashrc
+Step 1.2: Configure Zeek
+# Identify your network interface
+ip addr show
+
+# Configure Zeek node (replace eth0 with your interface)
+sudo tee /opt/zeek/etc/node.cfg << 'EOF'
+[zeek]
+type=standalone
+host=localhost
+interface=eth0
+EOF
+
+# Define local networks
+sudo tee /opt/zeek/etc/networks.cfg << 'EOF'
+10.0.0.0/8          Private IP space
+172.16.0.0/12       Private IP space
+192.168.0.0/16      Private IP space
+EOF
+Step 1.3: Start Zeek and Verify
+# Deploy Zeek
+sudo /opt/zeek/bin/zeekctl deploy
+
+# Check status
+sudo /opt/zeek/bin/zeekctl status
+
+# Generate test traffic
+curl http://httpbin.org/get
+curl http://httpbin.org/post -d "test=data"
+
+# Wait and check logs
+sleep 10
+sudo ls -la /opt/zeek/logs/current/
+sudo head -20 /opt/zeek/logs/current/conn.log
+Task 2: Set Up NetFlow Collection
+Step 2.1: Install NetFlow Tools
+# Install softflowd and nfcapd
+sudo apt install -y softflowd nfcapd nfdump
+
+# Create NetFlow data directory
+sudo mkdir -p /var/log/netflow
+sudo chown $USER:$USER /var/log/netflow
+Step 2.2: Start NetFlow Collection
+# Start nfcapd collector
+nfcapd -w -D -p 9995 -l /var/log/netflow &
+
+# Start softflowd to generate NetFlow data (replace eth0 with your interface)
+sudo softflowd -i eth0 -n 127.0.0.1:9995 -v 5 -t maxlife=60 &
+
+# Verify processes are running
+ps aux | grep -E 'nfcapd|softflowd'
+Step 2.3: Generate Traffic and Collect Data
+# Generate diverse network traffic
+for i in {1..5}; do
+    curl -s http://httpbin.org/get > /dev/null
+    curl -s http://httpbin.org/json > /dev/null
+    ping -c 3 8.8.8.8 > /dev/null 2>&1
+    sleep 2
+done
+
+# Wait for data collection
+sleep 30
+
+# Verify NetFlow data
+ls -la /var/log/netflow/
+nfdump -R /var/log/netflow/ | head -20
+Step 2.4: Analyze NetFlow Data
+# View all flows
+nfdump -R /var/log/netflow/
+
+# Top talkers by bytes
+nfdump -R /var/log/netflow/ -s srcip/bytes -n 10
+
+# Top protocols
+nfdump -R /var/log/netflow/ -s proto/bytes -n 10
+
+# Top destination ports
+nfdump -R /var/log/netflow/ -s dstport/flows -n 10
+Task 3: Develop Anomaly Detection Script
+Step 3.1: Create NetFlow Parser Template
+Create /tmp/netflow_analyzer.py:
+
+#!/usr/bin/env python3
+"""
+NetFlow Anomaly Detection System
+Students: Complete the TODO sections to implement full functionality
+"""
+
+import subprocess
+import pandas as pd
+import numpy as np
+import json
+from datetime import datetime
+
+class NetFlowAnalyzer:
+    def __init__(self, netflow_dir="/var/log/netflow/"):
+        self.netflow_dir = netflow_dir
+        self.baseline_data = {}
+        self.anomaly_threshold = 2.0  # Standard deviations
+        
+    def parse_netflow_data(self):
+        """
+        Parse NetFlow data using nfdump command
+        
+        Returns:
+            pandas.DataFrame: Parsed NetFlow data
+        """
+        # TODO: Execute nfdump command with CSV output
+        # TODO: Parse CSV output into structured data
+        # TODO: Create DataFrame with columns: timestamp, protocol, src_ip, 
+        #       src_port, dst_ip, dst_port, packets, bytes
+        # TODO: Handle errors and empty data
+        pass
+    
+    def establish_baseline(self, df):
+        """
+        Establish baseline metrics from NetFlow data
+        
+        Args:
+            df: DataFrame containing NetFlow data
+        """
+        # TODO: Calculate average bytes per flow
+        # TODO: Calculate standard deviation of bytes
+        # TODO: Calculate average packets per flow
+        # TODO: Identify top protocols (value_counts)
+        # TODO: Identify top source IPs
+        # TODO: Identify top destination ports
+        # TODO: Store all metrics in self.baseline_data dictionary
+        # TODO: Print baseline summary
+        pass
+    
+    def detect_anomalies(self, df):
+        """
+        Detect anomalies in current NetFlow data
+        
+        Args:
+            df: DataFrame containing current NetFlow data
+            
+        Returns:
+            list: List of detected anomalies
+        """
+        anomalies = []
+        
+        # TODO: Check if baseline exists
+        
+        # TODO: Detect high flow volume (compare to baseline)
+        
+        # TODO: Detect unusual byte patterns (use standard deviation)
+        
+        # TODO: Detect new protocols not in baseline
+        
+        # TODO: Detect port scanning (same src_ip, many dst_ports)
+        # Hint: Use groupby and nunique
+        
+        # TODO: Detect potential data exfiltration (unusually high bytes)
+        
+        # TODO: Create anomaly dictionaries with type, severity, description
+        
+        return anomalies
+    
+    def save_baseline(self, filename="netflow_baseline.json"):
+        """Save baseline to JSON file"""
+        # TODO: Write self.baseline_data to JSON file
+        pass
+    
+    def load_baseline(self, filename="netflow_baseline.json"):
+        """Load baseline from JSON file"""
+        # TODO: Read baseline from JSON file
+        # TODO: Handle FileNotFoundError
+        pass
+    
+    def generate_report(self, anomalies):
+        """
+        Generate analysis report
+        
+        Args:
+            anomalies: List of detected anomalies
+        """
+        # TODO: Create formatted report string
+        # TODO: Include baseline summary
+        # TODO: Include anomaly counts by severity
+        # TODO: List all anomalies with details
+        # TODO: Save report to file with timestamp
+        # TODO: Print report
+        pass
+
+def main():
+    """Main execution function"""
+    # TODO: Create NetFlowAnalyzer instance
+    # TODO: Parse NetFlow data
+    # TODO: Load or establish baseline
+    # TODO: Detect anomalies
+    # TODO: Generate report
+    pass
+
+if __name__ == "__main__":
+    main()
+Step 3.2: Implement and Test
+# Make script executable
+chmod +x /tmp/netflow_analyzer.py
+
+# Students: Complete the TODO sections in the script
+
+# Test the analyzer
+python3 /tmp/netflow_analyzer.py
+Step 3.3: Create Suspicious Traffic Generator
+Create /tmp/suspicious_traffic.py:
+
+#!/usr/bin/env python3
+"""
+Suspicious Traffic Generator
+Students: Complete to simulate various attack patterns
+"""
+
+import socket
+import requests
+import time
+
+def simulate_port_scan(target_ip="8.8.8.8", ports=None):
+    """
+    Simulate port scanning activity
+    
+    Args:
+        target_ip: Target IP address
+        ports: List of ports to scan
+    """
+    if ports is None:
+        ports = [21, 22, 23, 25, 53, 80, 110, 143, 443, 3306, 5432]
+    
+    # TODO: Iterate through ports
+    # TODO: Create socket connection attempts
+    # TODO: Use short timeout (1 second)
+    # TODO: Close sockets properly
+    pass
+
+def simulate_high_volume_traffic(url="http://httpbin.org/bytes/10000", count=20):
+    """
+    Generate high volume HTTP requests
+    
+    Args:
+        url: Target URL
+        count: Number of requests
+    """
+    # TODO: Loop for count iterations
+    # TODO: Make HTTP GET requests
+    # TODO: Handle exceptions
+    # TODO: Add small delays between requests
+    pass
+
+def simulate_dns_tunneling(domains=None):
+    """
+    Simulate DNS tunneling pattern
+    
+    Args:
+        domains: List of domains for lookups
+    """
+    # TODO: Perform multiple DNS lookups
+    # TODO: Use socket.gethostbyname()
+    # TODO: Simulate suspicious pattern (many lookups)
+    pass
+
+if __name__ == "__main__":
+    # TODO: Call simulation functions
+    # TODO: Add appropriate delays
+    pass
+Step 3.4: Test Anomaly Detection
+# Run suspicious traffic generator
+python3 /tmp/suspicious_traffic.py
+
+# Wait for NetFlow collection
+sleep 30
+
+# Run anomaly detection
+python3 /tmp/netflow_analyzer.py
+
+# Review detected anomalies
+cat netflow_report_*.txt
+Task 4: Correlate Zeek and NetFlow Data
+Step 4.1: Create Correlation Script Template
+Create /tmp/zeek_netflow_correlator.py:
+
+#!/usr/bin/env python3
+"""
+Zeek and NetFlow Data Correlator
+Students: Complete to correlate data from both sources
+"""
+
+import pandas as pd
+import subprocess
+from datetime import datetime
+
+class ZeekNetFlowCorrelator:
+    def __init__(self, zeek_log_dir="/opt/zeek/logs/current/", 
+                 netflow_dir="/var/log/netflow/"):
+        self.zeek_log_dir = zeek_log_dir
+        self.netflow_dir = netflow_dir
+        
+    def parse_zeek_conn_log(self):
+        """
+        Parse Zeek connection log
+        
+        Returns:
+            pandas.DataFrame: Parsed Zeek connection data
+        """
+        # TODO: Read conn.log file (skip lines starting with #)
+        # TODO: Parse tab-separated values
+        # TODO: Extract: timestamp, src_ip, src_port, dst_ip, dst_port,
+        #       protocol, service, duration, orig_bytes, resp_bytes
+        # TODO: Return DataFrame
+        pass
+    
+    def parse_netflow_data(self):
+        """
+        Parse NetFlow data
+        
+        Returns:
+            pandas.DataFrame: Parsed NetFlow data
+        """
+        # TODO: Use nfdump to get CSV output
+        # TODO: Parse CSV data
+        # TODO: Return DataFrame
+        pass
+    
+    def correlate_data(self, zeek_df, netflow_df):
+        """
+        Correlate Zeek and NetFlow data
+        
+        Args:
+            zeek_df: Zeek connection DataFrame
+            netflow_df: NetFlow DataFrame
+            
+        Returns:
+            dict: Correlation results
+        """
+        results = {}
+        
+        # TODO: Find common connections (match on src_ip, dst_ip, dst_port)
+        # TODO: Compare byte counts between sources
+        # TODO: Identify connections only in Zeek
+        # TODO: Identify flows only in NetFlow
+        # TODO: Calculate correlation statistics
+        
+        return results
+    
+    def generate_correlation_report(self, results):
+        """
+        Generate correlation report
+        
+        Args:
+            results: Correlation results dictionary
+        """
+        # TODO: Create formatted report
+        # TODO: Include statistics from both sources
+        # TODO: Highlight discrepancies
+        # TODO: Save to file
+        pass
+
+def main():
+    """Main execution function"""
+    # TODO: Create correlator instance
+    # TODO: Parse both data sources
+    # TODO: Correlate data
+    # TODO: Generate report
+    pass
+
+if __name__ == "__main__":
+    main()
+Step 4.2: Implement and Test Correlation
+# Students: Complete the correlation script
+
+# Generate traffic for correlation
+curl http://httpbin.org/get
+curl http://httpbin.org/post -d "test=data"
+ping -c 5 8.8.8.8
+
+# Wait for data collection
+sleep 30
+
+# Run correlation
+python3 /tmp/zeek_netflow_correlator.py
+
+# Review correlation results
+cat correlation_report_*.txt
+Step 4.3: Create Continuous Monitoring Template
+Create /tmp/continuous_monitor.py:
+
+#!/usr/bin/env python3
+"""
+Continuous Network Monitoring System
+Students: Complete to implement real-time monitoring
+"""
+
+import time
+from datetime import datetime
+import sys
+
+# Import your analyzer
+sys.path.append('/tmp')
+from netflow_analyzer import NetFlowAnalyzer
+
+class ContinuousMonitor:
+    def __init__(self, check_interval=60):
+        self.analyzer = NetFlowAnalyzer()
+        self.check_interval = check_interval
+        self.running = True
+        
+    def monitor(self):
+        """
+        Main monitoring loop
+        """
+        # TODO: Load or establish baseline
+        
+        cycle_count = 0
+        
+        try:
+            while self.running:
+                cycle_count += 1
+                
+                # TODO: Parse current NetFlow data
+                # TODO: Detect anomalies
+                # TODO: Alert on high severity anomalies
+                # TODO: Log results
+                # TODO: Sleep for check_interval
+                
+        except KeyboardInterrupt:
+            print("\nMonitoring stopped")
+            self.running = False
+
+def main():
+    # TODO: Create monitor instance
+    # TODO: Start monitoring
+    pass
+
+if __name__ == "__main__":
+    main()
+Expected Outcomes
+After completing this lab, you should have:
+
+Zeek installed and monitoring network traffic
+NetFlow collection system operational
+Python scripts that parse and analyze network data
+Baseline network behavior established
+Anomaly detection system identifying suspicious patterns
+Correlation between Zeek and NetFlow data sources
+Understanding of how to combine multiple data sources for security monitoring
+Troubleshooting Tips
+Zeek not capturing traffic:
+
+Verify correct network interface in node.cfg
+Check permissions: sudo /opt/zeek/bin/zeekctl status
+Ensure interface is up: ip link show
+NetFlow data not collecting:
+
+Verify nfcapd is running: ps aux | grep nfcapd
+Check softflowd status: ps aux | grep softflowd
+Ensure port 9995 is not blocked: sudo netstat -tulpn | grep 9995
+Python script errors:
+
+Install required packages: pip3 install pandas numpy
+Check file paths in script configuration
+Verify NetFlow data exists: ls -la /var/log/netflow/
+No anomalies detected:
+
+Ensure baseline is established first
+Generate more diverse traffic patterns
+Adjust anomaly_threshold value (lower = more sensitive)
+Conclusion
+This lab demonstrated how to establish a comprehensive network monitoring baseline using Zeek and NetFlow. You learned to:
+
+Deploy enterprise-grade network monitoring tools
+Collect and parse multiple data sources
+Establish baseline behavior for anomaly detection
+Develop automated security monitoring solutions
+Correlate data from different sources for enhanced visibility
+These skills form the foundation for Security Operations Center (SOC) activities and network security monitoring. Continue practicing by analyzing different traffic patterns and refining your detection algorithms.
+
+Next Steps:
+
+Experiment with different anomaly detection thresholds
+Add more sophisticated detection rules
+Integrate with alerting systems (email, Slack, etc.)
+Explore Zeek's protocol-specific logs (HTTP, DNS, SSL)
+Implement machine learning for anomaly detection
