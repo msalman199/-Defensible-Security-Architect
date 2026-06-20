@@ -1,0 +1,539 @@
+Harden VPN Tunnels with strongSwan
+Objectives
+By the end of this lab, students will be able to:
+
+Install and configure strongSwan for secure site-to-site VPN tunnels
+Implement modern cryptographic best practices with strong encryption algorithms
+Configure IPSec policies with Perfect Forward Secrecy (PFS)
+Set up certificate-based authentication using PKI infrastructure
+Create Python scripts to monitor tunnel health and automate recovery
+Apply firewall rules to secure VPN traffic
+Prerequisites
+Before starting this lab, students should have:
+
+Basic Linux command line proficiency
+Understanding of networking fundamentals (IP addressing, routing, protocols)
+Familiarity with cryptographic concepts (encryption, certificates, PKI)
+Basic Python programming skills
+Lab Environment
+Al Nafi provides ready-to-use Ubuntu 22.04 LTS cloud machines for this lab. Click Start Lab to access your pre-configured environment with root/sudo access.
+
+Task 1: Install and Configure strongSwan
+Step 1.1: Install strongSwan Components
+Install strongSwan with necessary plugins for modern cryptography:
+
+# Update package repositories
+sudo apt update
+
+# Install strongSwan with PKI tools and plugins
+sudo apt install -y strongswan strongswan-pki libcharon-extra-plugins
+
+# Verify installation
+sudo ipsec version
+Step 1.2: Create PKI Infrastructure
+Generate a Certificate Authority and certificates for authentication:
+
+# Create directory structure
+sudo mkdir -p /etc/ipsec.d/{cacerts,certs,private}
+
+# Generate CA private key (4096-bit RSA)
+sudo ipsec pki --gen --type rsa --size 4096 --outform pem > /etc/ipsec.d/private/ca-key.pem
+
+# Create self-signed CA certificate (10-year validity)
+sudo ipsec pki --self --ca --lifetime 3650 --in /etc/ipsec.d/private/ca-key.pem \
+    --type rsa --dn "CN=VPN CA, O=Security Lab, C=US" \
+    --outform pem > /etc/ipsec.d/cacerts/ca-cert.pem
+
+# Generate server private key
+sudo ipsec pki --gen --type rsa --size 4096 --outform pem > /etc/ipsec.d/private/server-key.pem
+
+# Create server certificate signed by CA
+sudo ipsec pki --pub --in /etc/ipsec.d/private/server-key.pem --type rsa | \
+    sudo ipsec pki --issue --lifetime 1825 --cacert /etc/ipsec.d/cacerts/ca-cert.pem \
+    --cakey /etc/ipsec.d/private/ca-key.pem --dn "CN=vpn.lab.local, O=Security Lab, C=US" \
+    --san vpn.lab.local --flag serverAuth --flag ikeIntermediate \
+    --outform pem > /etc/ipsec.d/certs/server-cert.pem
+
+# Set secure permissions
+sudo chmod 600 /etc/ipsec.d/private/*
+sudo chmod 644 /etc/ipsec.d/cacerts/*
+sudo chmod 644 /etc/ipsec.d/certs/*
+Step 1.3: Configure strongSwan with Hardened Settings
+Create a secure IPSec configuration:
+
+# Backup original configuration
+sudo cp /etc/ipsec.conf /etc/ipsec.conf.backup
+
+# Create hardened configuration
+sudo tee /etc/ipsec.conf > /dev/null << 'EOF'
+config setup
+    charondebug="ike 1, knl 1, cfg 0"
+    uniqueids=no
+
+conn %default
+    ikelifetime=60m
+    keylife=20m
+    rekeymargin=3m
+    keyingtries=1
+    keyexchange=ikev2
+    authby=rsasig
+    ike=aes256gcm16-sha384-modp4096,aes256-sha384-modp4096!
+    esp=aes256gcm16-sha384-modp4096,aes256-sha384-modp4096!
+    compress=no
+    dpdaction=restart
+    dpddelay=30s
+    dpdtimeout=120s
+
+conn site-to-site
+    left=%defaultroute
+    leftid="CN=vpn.lab.local, O=Security Lab, C=US"
+    leftcert=server-cert.pem
+    leftsubnet=192.168.10.0/24
+    right=%any
+    rightsubnet=192.168.20.0/24
+    auto=add
+EOF
+
+# Configure secrets
+sudo tee /etc/ipsec.secrets > /dev/null << 'EOF'
+: RSA server-key.pem
+EOF
+
+sudo chmod 600 /etc/ipsec.secrets
+Step 1.4: Enable IP Forwarding and Start Service
+# Enable IP forwarding
+echo 'net.ipv4.ip_forward = 1' | sudo tee -a /etc/sysctl.conf
+echo 'net.ipv4.conf.all.accept_redirects = 0' | sudo tee -a /etc/sysctl.conf
+echo 'net.ipv4.conf.all.send_redirects = 0' | sudo tee -a /etc/sysctl.conf
+sudo sysctl -p
+
+# Start strongSwan
+sudo ipsec start
+
+# Verify status
+sudo ipsec status
+Task 2: Implement Security Best Practices
+Step 2.1: Configure Firewall Rules for VPN
+Create iptables rules to secure VPN traffic:
+
+# Create firewall script
+sudo tee /usr/local/bin/vpn-firewall.sh > /dev/null << 'EOF'
+#!/bin/bash
+
+# Set default policies
+iptables -P INPUT DROP
+iptables -P FORWARD DROP
+iptables -P OUTPUT ACCEPT
+
+# Allow loopback and established connections
+iptables -A INPUT -i lo -j ACCEPT
+iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+# Allow SSH
+iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+
+# Allow IKE (UDP 500) and NAT-T (UDP 4500)
+iptables -A INPUT -p udp --dport 500 -j ACCEPT
+iptables -A INPUT -p udp --dport 4500 -j ACCEPT
+
+# Allow ESP protocol
+iptables -A INPUT -p esp -j ACCEPT
+
+# Allow VPN subnet forwarding
+iptables -A FORWARD -s 192.168.10.0/24 -d 192.168.20.0/24 -j ACCEPT
+iptables -A FORWARD -s 192.168.20.0/24 -d 192.168.10.0/24 -j ACCEPT
+
+# Enable NAT for VPN traffic
+iptables -t nat -A POSTROUTING -s 192.168.10.0/24 -o eth0 -j MASQUERADE
+
+echo "VPN firewall configured"
+EOF
+
+sudo chmod +x /usr/local/bin/vpn-firewall.sh
+sudo /usr/local/bin/vpn-firewall.sh
+Step 2.2: Disable Weak Cryptographic Algorithms
+Configure strongSwan to reject weak algorithms:
+
+# Create crypto policy configuration
+sudo tee /etc/strongswan.d/charon/crypto-policy.conf > /dev/null << 'EOF'
+charon {
+    plugins {
+        # Disable weak encryption
+        des { load = no }
+        
+        # Disable weak hashing
+        md5 { load = no }
+        sha1 { load = no }
+        
+        # Ensure strong random generation
+        random {
+            strong_random = yes
+        }
+    }
+}
+EOF
+
+# Restart strongSwan to apply changes
+sudo ipsec restart
+Step 2.3: Create Certificate Validation Script
+Students will complete this script to validate certificates:
+
+sudo tee /usr/local/bin/cert-validator.sh > /dev/null << 'EOF'
+#!/bin/bash
+
+# Certificate validation script
+LOG_FILE="/var/log/cert-validation.log"
+
+validate_certificate() {
+    local cert_path="$1"
+    local ca_path="$2"
+    
+    # TODO: Implement certificate validation using openssl verify
+    # TODO: Log validation results to LOG_FILE
+    # TODO: Return 0 for valid, 1 for invalid
+}
+
+check_expiration() {
+    local cert_path="$1"
+    local days_warning=30
+    
+    # TODO: Extract expiration date using openssl x509
+    # TODO: Calculate days until expiration
+    # TODO: Log warning if expiration is within days_warning
+}
+
+# TODO: Call validation functions for server and client certificates
+# TODO: Call expiration check functions
+EOF
+
+sudo chmod +x /usr/local/bin/cert-validator.sh
+Student Task: Complete the certificate validation functions to check certificate validity and expiration dates.
+
+Task 3: Automate VPN Health Monitoring
+Step 3.1: Create VPN Health Monitor (Python)
+Students will complete this monitoring script:
+
+#!/usr/bin/env python3
+"""
+VPN Health Monitoring Script
+Students must complete the TODO sections
+"""
+
+import subprocess
+import logging
+import json
+from datetime import datetime
+
+class VPNHealthMonitor:
+    def __init__(self):
+        self.setup_logging()
+        
+    def setup_logging(self):
+        """Configure logging"""
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler('/var/log/vpn-health.log'),
+                logging.StreamHandler()
+            ]
+        )
+        self.logger = logging.getLogger(__name__)
+    
+    def check_strongswan_status(self):
+        """
+        Check if strongSwan daemon is running
+        
+        Returns:
+            tuple: (bool, str) - (is_running, status_output)
+        """
+        # TODO: Execute 'sudo ipsec status' command
+        # TODO: Parse output to determine if daemon is running
+        # TODO: Return tuple with status and output
+        pass
+    
+    def check_tunnel_connections(self):
+        """
+        Check active IPSec tunnel connections
+        
+        Returns:
+            dict: Dictionary of active connections with their status
+        """
+        # TODO: Execute 'sudo ipsec statusall' command
+        # TODO: Parse output to find ESTABLISHED connections
+        # TODO: Return dictionary with connection details
+        pass
+    
+    def check_certificate_validity(self):
+        """
+        Check certificate validity and expiration
+        
+        Returns:
+            dict: Certificate status for each certificate file
+        """
+        certificates = [
+            '/etc/ipsec.d/certs/server-cert.pem'
+        ]
+        
+        cert_status = {}
+        
+        # TODO: For each certificate, check validity using openssl
+        # TODO: Extract expiration date and calculate days remaining
+        # TODO: Store results in cert_status dictionary
+        
+        return cert_status
+    
+    def check_network_connectivity(self):
+        """
+        Test network connectivity through VPN tunnel
+        
+        Returns:
+            dict: Connectivity test results for each target
+        """
+        test_targets = ['8.8.8.8', '1.1.1.1']
+        connectivity_results = {}
+        
+        # TODO: Ping each target with timeout
+        # TODO: Parse ping results for packet loss
+        # TODO: Store results in connectivity_results dictionary
+        
+        return connectivity_results
+    
+    def generate_health_report(self):
+        """
+        Generate comprehensive health report
+        
+        Returns:
+            dict: Complete health report with all checks
+        """
+        report = {
+            'timestamp': datetime.now().isoformat(),
+            'strongswan_status': {},
+            'tunnel_connections': {},
+            'certificate_status': {},
+            'network_connectivity': {},
+            'overall_health': 'UNKNOWN'
+        }
+        
+        # TODO: Call all check methods and populate report
+        # TODO: Calculate overall health score based on results
+        # TODO: Set overall_health to HEALTHY, WARNING, or CRITICAL
+        
+        return report
+    
+    def save_report(self, report):
+        """Save health report to JSON file"""
+        try:
+            with open('/var/log/vpn-health-report.json', 'w') as f:
+                json.dump(report, f, indent=2)
+            self.logger.info("Health report saved")
+        except Exception as e:
+            self.logger.error(f"Error saving report: {e}")
+    
+    def run_health_check(self):
+        """Run complete health check and display results"""
+        # TODO: Generate health report
+        # TODO: Save report to file
+        # TODO: Print summary to console
+        pass
+
+def main():
+    monitor = VPNHealthMonitor()
+    monitor.run_health_check()
+
+if __name__ == "__main__":
+    main()
+Save this as /usr/local/bin/vpn-health-monitor.py and make it executable:
+
+sudo chmod +x /usr/local/bin/vpn-health-monitor.py
+Student Task: Complete all TODO sections to implement health monitoring functionality.
+
+Step 3.2: Create Automated Recovery Script
+Students will complete this recovery automation:
+
+#!/usr/bin/env python3
+"""
+VPN Automated Recovery Script
+Students must complete the TODO sections
+"""
+
+import subprocess
+import time
+import logging
+from datetime import datetime
+
+class VPNRecovery:
+    def __init__(self):
+        self.setup_logging()
+        self.recovery_attempts = 0
+        self.max_recovery_attempts = 3
+        
+    def setup_logging(self):
+        """Configure logging for recovery operations"""
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler('/var/log/vpn-recovery.log'),
+                logging.StreamHandler()
+            ]
+        )
+        self.logger = logging.getLogger(__name__)
+    
+    def restart_strongswan(self):
+        """
+        Restart strongSwan service
+        
+        Returns:
+            bool: True if restart successful, False otherwise
+        """
+        # TODO: Execute 'sudo ipsec stop' command
+        # TODO: Wait 5 seconds
+        # TODO: Execute 'sudo ipsec start' command
+        # TODO: Verify service started successfully
+        # TODO: Return True/False based on result
+        pass
+    
+    def reload_connections(self):
+        """
+        Reload IPSec connections without full restart
+        
+        Returns:
+            bool: True if reload successful, False otherwise
+        """
+        # TODO: Execute 'sudo ipsec reload' command
+        # TODO: Check return code
+        # TODO: Return True/False based on result
+        pass
+    
+    def restart_connection(self, connection_name):
+        """
+        Restart specific IPSec connection
+        
+        Args:
+            connection_name: Name of connection to restart
+            
+        Returns:
+            bool: True if restart successful, False otherwise
+        """
+        # TODO: Execute 'sudo ipsec down <connection_name>'
+        # TODO: Wait 2 seconds
+        # TODO: Execute 'sudo ipsec up <connection_name>'
+        # TODO: Verify connection established
+        # TODO: Return True/False based on result
+        pass
+    
+    def check_and_recover(self):
+        """
+        Check VPN status and perform recovery if needed
+        
+        Returns:
+            bool: True if recovery successful or not needed, False otherwise
+        """
+        # TODO: Import and use VPNHealthMonitor to check status
+        # TODO: Determine if recovery is needed based on health report
+        # TODO: If needed, attempt recovery actions in order:
+        #       1. Reload connections
+        #       2. Restart specific connection
+        #       3. Full service restart (last resort)
+        # TODO: Track recovery attempts and respect max_recovery_attempts
+        # TODO: Return success/failure status
+        pass
+
+def main():
+    recovery = VPNRecovery()
+    
+    # TODO: Implement continuous monitoring loop
+    # TODO: Check VPN health every 5 minutes
+    # TODO: Trigger recovery if issues detected
+    # TODO: Handle KeyboardInterrupt for graceful shutdown
+    pass
+
+if __name__ == "__main__":
+    main()
+Save as /usr/local/bin/vpn-recovery.py and make executable:
+
+sudo chmod +x /usr/local/bin/vpn-recovery.py
+Student Task: Complete the recovery automation logic and implement continuous monitoring.
+
+Task 4: Test and Verify VPN Configuration
+Step 4.1: Verify strongSwan Configuration
+# Check configuration syntax
+sudo ipsec checkconfig
+
+# View loaded connections
+sudo ipsec statusall
+
+# Check certificate loading
+sudo ipsec listcerts
+
+# View security associations
+sudo ipsec listsas
+Step 4.2: Test Tunnel Establishment
+# Bring up the site-to-site connection
+sudo ipsec up site-to-site
+
+# Verify connection status
+sudo ipsec status site-to-site
+
+# Check routing table
+ip route show
+
+# Test connectivity through tunnel (if remote end configured)
+ping -c 4 192.168.20.1
+Step 4.3: Run Health Monitoring
+# Execute health check
+sudo python3 /usr/local/bin/vpn-health-monitor.py
+
+# View health report
+cat /var/log/vpn-health-report.json
+
+# Check logs
+tail -f /var/log/vpn-health.log
+Expected Outcomes
+Upon successful completion, students should have:
+
+A functioning strongSwan VPN server with certificate-based authentication
+Hardened IPSec configuration using strong cryptographic algorithms (AES-256-GCM, SHA-384, DH Group 16)
+Firewall rules properly configured to allow VPN traffic while blocking unauthorized access
+Working Python scripts for automated health monitoring and recovery
+Understanding of VPN security best practices and troubleshooting techniques
+Troubleshooting Tips
+Issue: strongSwan fails to start
+Symptoms: Service won't start or immediately stops
+
+Solutions:
+
+Check configuration syntax: sudo ipsec checkconfig
+Review logs: sudo journalctl -u strongswan -n 50
+Verify certificate permissions: ls -la /etc/ipsec.d/private/
+Ensure IP forwarding is enabled: sysctl net.ipv4.ip_forward
+Issue: Tunnel won't establish
+Symptoms: Connection stays in "connecting" state or fails
+
+Solutions:
+
+Verify firewall allows UDP 500, 4500 and ESP protocol
+Check certificate validity: sudo ipsec listcerts
+Review IKE negotiation logs: sudo ipsec statusall
+Ensure both endpoints have correct subnet configurations
+Verify time synchronization (certificates are time-sensitive)
+Issue: Python scripts fail to execute
+Symptoms: Permission denied or module not found errors
+
+Solutions:
+
+Verify script has execute permissions: chmod +x script.py
+Check Python path: which python3
+Install missing modules: pip3 install <module>
+Run with sudo if accessing system commands: sudo python3 script.py
+Conclusion
+This lab provided hands-on experience hardening VPN tunnels using strongSwan with modern security practices. Students configured certificate-based authentication, implemented strong cryptographic algorithms with Perfect Forward Secrecy, and created automation scripts for monitoring and recovery. These skills are essential for securing network communications in enterprise environments and protecting data in transit from sophisticated attacks. The combination of proper configuration, strong cryptography, and automated monitoring creates a robust VPN infrastructure suitable for production deployments.
+
+Key takeaways:
+
+Certificate-based authentication provides stronger security than pre-shared keys
+Modern cipher suites (AES-256-GCM, SHA-384) protect against current threats
+Perfect Forward Secrecy ensures past communications remain secure even if keys are compromised
+Automated monitoring and recovery improve VPN reliability and reduce downtime
+Defense in depth requires multiple security layers: encryption, authentication, and access control
