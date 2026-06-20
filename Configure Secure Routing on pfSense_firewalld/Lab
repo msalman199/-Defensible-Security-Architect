@@ -1,0 +1,760 @@
+Configure Secure Routing on pfSense/firewalld
+Objectives
+By the end of this lab, students will be able to:
+
+Install and configure pfSense in a virtualized environment on Linux
+Set up secure routing protocols and policies using pfSense
+Configure firewalld for enhanced network security
+Implement automated firewall rule management using Python scripts
+Understand the integration between pfSense and Linux-based firewall solutions
+Apply security best practices for network routing and firewall management
+Prerequisites
+Before starting this lab, students should have:
+
+Basic understanding of networking concepts (IP addressing, routing, firewalls)
+Familiarity with Linux command line interface
+Basic knowledge of Python scripting
+Understanding of network security principles
+Experience with virtualization concepts
+Ready-to-Use Cloud Machines
+Al Nafi provides Linux-based cloud machines with all necessary tools pre-installed. Simply click Start Lab to access your dedicated environment. No need to build your own VM or install additional software.
+
+Your cloud machine includes:
+
+Ubuntu 22.04 LTS with KVM virtualization support
+Python 3.10+ with required libraries
+VirtualBox and necessary networking tools
+pfSense ISO image pre-downloaded
+All configuration files and scripts ready to use
+Lab Environment Setup
+Task 1: Set up pfSense for Secure Routing
+Subtask 1.1: Prepare the Virtual Environment
+First, verify that your system has virtualization capabilities and install necessary components:
+
+# Check if virtualization is enabled
+sudo apt update
+sudo apt install -y cpu-checker
+kvm-ok
+
+# Install VirtualBox and dependencies
+sudo apt install -y virtualbox virtualbox-ext-pack
+sudo usermod -a -G vboxusers $USER
+
+# Create directory for lab files
+mkdir -p ~/lab6-secure-routing
+cd ~/lab6-secure-routing
+Subtask 1.2: Create pfSense Virtual Machine
+Create a new virtual machine for pfSense installation:
+
+# Create pfSense VM
+VBoxManage createvm --name "pfSense-Lab" --ostype FreeBSD_64 --register
+
+# Configure VM settings
+VBoxManage modifyvm "pfSense-Lab" --memory 2048 --cpus 2
+VBoxManage modifyvm "pfSense-Lab" --vram 16
+VBoxManage modifyvm "pfSense-Lab" --boot1 dvd --boot2 disk
+
+# Create virtual hard disk
+VBoxManage createhd --filename ~/lab6-secure-routing/pfSense-Lab.vdi --size 20480
+
+# Attach storage
+VBoxManage storagectl "pfSense-Lab" --name "SATA Controller" --add sata --controller IntelAhci
+VBoxManage storageattach "pfSense-Lab" --storagectl "SATA Controller" --port 0 --device 0 --type hdd --medium ~/lab6-secure-routing/pfSense-Lab.vdi
+
+# Attach pfSense ISO (assuming it's in /opt/pfsense/)
+VBoxManage storagectl "pfSense-Lab" --name "IDE Controller" --add ide
+VBoxManage storageattach "pfSense-Lab" --storagectl "IDE Controller" --port 0 --device 0 --type dvddrive --medium /opt/pfsense/pfSense-CE-2.7.0-RELEASE-amd64.iso
+Subtask 1.3: Configure Network Interfaces
+Set up multiple network interfaces for WAN and LAN connectivity:
+
+# Create internal network for LAN
+VBoxManage modifyvm "pfSense-Lab" --nic1 nat --nictype1 82540EM
+VBoxManage modifyvm "pfSense-Lab" --nic2 intnet --intnet2 "LAN-Network" --nictype2 82540EM
+
+# Start the VM
+VBoxManage startvm "pfSense-Lab" --type gui
+Subtask 1.4: Install and Configure pfSense
+Follow these steps in the pfSense VM console:
+
+Boot from ISO: Select "Install pfSense"
+Partition Setup: Choose "Auto (UFS)" for automatic partitioning
+Installation: Wait for installation to complete
+Reboot: Remove ISO and reboot the system
+After reboot, configure interfaces:
+
+# In pfSense console
+# Assign interfaces:
+# WAN: em0 (NAT interface)
+# LAN: em1 (Internal network)
+
+# Set LAN IP address
+# Choose option 2: Set interface(s) IP address
+# Select LAN interface (2)
+# Set IP: 192.168.100.1
+# Subnet: 24
+# Enable DHCP: Yes
+# DHCP range: 192.168.100.100 to 192.168.100.200
+Subtask 1.5: Access pfSense Web Interface
+Create a bridge connection to access pfSense from the host:
+
+# Create a VM for accessing pfSense web interface
+VBoxManage createvm --name "Client-VM" --ostype Ubuntu_64 --register
+VBoxManage modifyvm "Client-VM" --memory 1024 --cpus 1
+VBoxManage modifyvm "Client-VM" --nic1 intnet --intnet1 "LAN-Network"
+
+# Use existing Ubuntu ISO or create minimal client
+# Start client VM and configure network to get IP from pfSense DHCP
+Access pfSense web interface at https://192.168.100.1 with default credentials:
+
+Username: admin
+Password: pfsense
+Task 2: Configure firewalld for Added Security
+Subtask 2.1: Install and Enable firewalld
+On your main Linux host, configure firewalld as an additional security layer:
+
+# Install firewalld
+sudo apt install -y firewalld
+
+# Enable and start firewalld
+sudo systemctl enable firewalld
+sudo systemctl start firewalld
+
+# Check status
+sudo firewall-cmd --state
+sudo firewall-cmd --get-default-zone
+Subtask 2.2: Configure Basic Firewall Zones
+Create and configure custom zones for different network segments:
+
+# Create custom zones
+sudo firewall-cmd --permanent --new-zone=dmz-secure
+sudo firewall-cmd --permanent --new-zone=internal-secure
+sudo firewall-cmd --permanent --new-zone=management
+
+# Reload to apply changes
+sudo firewall-cmd --reload
+
+# List all zones
+sudo firewall-cmd --get-zones
+Subtask 2.3: Configure Zone Rules
+Set up specific rules for each zone:
+
+# Configure DMZ zone
+sudo firewall-cmd --permanent --zone=dmz-secure --add-service=http
+sudo firewall-cmd --permanent --zone=dmz-secure --add-service=https
+sudo firewall-cmd --permanent --zone=dmz-secure --add-port=8080/tcp
+
+# Configure internal zone
+sudo firewall-cmd --permanent --zone=internal-secure --add-service=ssh
+sudo firewall-cmd --permanent --zone=internal-secure --add-service=dhcp
+sudo firewall-cmd --permanent --zone=internal-secure --add-port=3389/tcp
+
+# Configure management zone
+sudo firewall-cmd --permanent --zone=management --add-service=ssh
+sudo firewall-cmd --permanent --zone=management --add-port=443/tcp
+sudo firewall-cmd --permanent --zone=management --add-port=8443/tcp
+
+# Apply changes
+sudo firewall-cmd --reload
+Subtask 2.4: Create Rich Rules for Advanced Security
+Implement advanced firewall rules using rich rule syntax:
+
+# Allow specific IP ranges
+sudo firewall-cmd --permanent --zone=internal-secure --add-rich-rule='rule family="ipv4" source address="192.168.100.0/24" accept'
+
+# Block specific ports from external access
+sudo firewall-cmd --permanent --zone=public --add-rich-rule='rule family="ipv4" port port="23" protocol="tcp" reject'
+
+# Rate limiting for SSH
+sudo firewall-cmd --permanent --zone=public --add-rich-rule='rule service name="ssh" accept limit value="3/m"'
+
+# Log dropped packets
+sudo firewall-cmd --permanent --zone=public --add-rich-rule='rule family="ipv4" source address="0.0.0.0/0" port port="1-1024" protocol="tcp" log prefix="FIREWALL-DROP: " level="warning" drop'
+
+# Reload configuration
+sudo firewall-cmd --reload
+Task 3: Automate Firewall Rule Updates Using Python
+Subtask 3.1: Create Python Environment
+Set up a Python environment for automation scripts:
+
+# Create project directory
+mkdir -p ~/lab6-secure-routing/automation
+cd ~/lab6-secure-routing/automation
+
+# Create virtual environment
+python3 -m venv firewall-automation
+source firewall-automation/bin/activate
+
+# Install required packages
+pip install requests paramiko schedule logging
+Subtask 3.2: Create Firewall Rule Management Script
+Create a comprehensive Python script for managing firewall rules:
+
+#!/usr/bin/env python3
+"""
+Automated Firewall Rule Management Script
+Lab 6: Configure Secure Routing on pfSense/firewalld
+"""
+
+import subprocess
+import json
+import logging
+import schedule
+import time
+from datetime import datetime
+import requests
+import sys
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('/var/log/firewall-automation.log'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+
+class FirewallManager:
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+        self.blocked_ips = set()
+        self.threat_feeds = [
+            "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_level1.netset"
+        ]
+    
+    def run_firewall_cmd(self, command):
+        """Execute firewall-cmd commands safely"""
+        try:
+            result = subprocess.run(
+                ['sudo', 'firewall-cmd'] + command.split(),
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            self.logger.info(f"Command executed: firewall-cmd {command}")
+            return result.stdout.strip()
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Command failed: {e}")
+            return None
+    
+    def add_ip_to_blocklist(self, ip_address, zone='public'):
+        """Add IP address to firewall blocklist"""
+        if ip_address not in self.blocked_ips:
+            command = f"--permanent --zone={zone} --add-rich-rule='rule family=\"ipv4\" source address=\"{ip_address}\" drop'"
+            result = self.run_firewall_cmd(command)
+            if result is not None:
+                self.blocked_ips.add(ip_address)
+                self.logger.info(f"Blocked IP: {ip_address}")
+                return True
+        return False
+    
+    def remove_ip_from_blocklist(self, ip_address, zone='public'):
+        """Remove IP address from firewall blocklist"""
+        if ip_address in self.blocked_ips:
+            command = f"--permanent --zone={zone} --remove-rich-rule='rule family=\"ipv4\" source address=\"{ip_address}\" drop'"
+            result = self.run_firewall_cmd(command)
+            if result is not None:
+                self.blocked_ips.discard(ip_address)
+                self.logger.info(f"Unblocked IP: {ip_address}")
+                return True
+        return False
+    
+    def update_threat_intelligence(self):
+        """Update firewall rules based on threat intelligence feeds"""
+        self.logger.info("Updating threat intelligence feeds...")
+        
+        for feed_url in self.threat_feeds:
+            try:
+                response = requests.get(feed_url, timeout=30)
+                if response.status_code == 200:
+                    threat_ips = []
+                    for line in response.text.split('\n'):
+                        line = line.strip()
+                        if line and not line.startswith('#'):
+                            # Simple IP validation
+                            if self.is_valid_ip(line):
+                                threat_ips.append(line)
+                    
+                    # Add first 50 IPs to avoid overwhelming the firewall
+                    for ip in threat_ips[:50]:
+                        self.add_ip_to_blocklist(ip)
+                    
+                    self.logger.info(f"Added {len(threat_ips[:50])} threat IPs from {feed_url}")
+                    
+            except Exception as e:
+                self.logger.error(f"Failed to update from {feed_url}: {e}")
+        
+        # Reload firewall rules
+        self.run_firewall_cmd("--reload")
+    
+    def is_valid_ip(self, ip):
+        """Basic IP address validation"""
+        parts = ip.split('.')
+        if len(parts) != 4:
+            return False
+        try:
+            for part in parts:
+                if not 0 <= int(part) <= 255:
+                    return False
+            return True
+        except ValueError:
+            return False
+    
+    def monitor_failed_logins(self):
+        """Monitor system logs for failed login attempts"""
+        try:
+            result = subprocess.run(
+                ['sudo', 'journalctl', '-u', 'ssh', '--since', '1 hour ago', '--grep', 'Failed password'],
+                capture_output=True,
+                text=True
+            )
+            
+            failed_attempts = {}
+            for line in result.stdout.split('\n'):
+                if 'Failed password' in line:
+                    # Extract IP address from log line
+                    parts = line.split()
+                    for i, part in enumerate(parts):
+                        if part == 'from' and i + 1 < len(parts):
+                            ip = parts[i + 1]
+                            if self.is_valid_ip(ip):
+                                failed_attempts[ip] = failed_attempts.get(ip, 0) + 1
+            
+            # Block IPs with more than 5 failed attempts
+            for ip, count in failed_attempts.items():
+                if count > 5:
+                    self.add_ip_to_blocklist(ip)
+                    self.logger.warning(f"Blocked IP {ip} after {count} failed login attempts")
+        
+        except Exception as e:
+            self.logger.error(f"Error monitoring failed logins: {e}")
+    
+    def backup_firewall_config(self):
+        """Create backup of current firewall configuration"""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_file = f"/tmp/firewall_backup_{timestamp}.xml"
+        
+        try:
+            # Export firewalld configuration
+            result = subprocess.run(
+                ['sudo', 'firewall-cmd', '--list-all-zones'],
+                capture_output=True,
+                text=True
+            )
+            
+            with open(backup_file, 'w') as f:
+                f.write(result.stdout)
+            
+            self.logger.info(f"Firewall configuration backed up to {backup_file}")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to backup firewall configuration: {e}")
+    
+    def generate_security_report(self):
+        """Generate security report with current firewall status"""
+        report = {
+            'timestamp': datetime.now().isoformat(),
+            'blocked_ips_count': len(self.blocked_ips),
+            'active_zones': [],
+            'services_allowed': {}
+        }
+        
+        try:
+            # Get active zones
+            zones_result = self.run_firewall_cmd("--get-active-zones")
+            if zones_result:
+                report['active_zones'] = zones_result.split('\n')
+            
+            # Get services for each zone
+            zones = self.run_firewall_cmd("--get-zones").split()
+            for zone in zones:
+                services = self.run_firewall_cmd(f"--zone={zone} --list-services")
+                if services:
+                    report['services_allowed'][zone] = services.split()
+            
+            # Save report
+            report_file = f"/tmp/security_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            with open(report_file, 'w') as f:
+                json.dump(report, f, indent=2)
+            
+            self.logger.info(f"Security report generated: {report_file}")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to generate security report: {e}")
+
+def main():
+    """Main function to run automated firewall management"""
+    firewall_manager = FirewallManager()
+    
+    # Schedule automated tasks
+    schedule.every(6).hours.do(firewall_manager.update_threat_intelligence)
+    schedule.every(1).hours.do(firewall_manager.monitor_failed_logins)
+    schedule.every(24).hours.do(firewall_manager.backup_firewall_config)
+    schedule.every(12).hours.do(firewall_manager.generate_security_report)
+    
+    # Run initial setup
+    firewall_manager.logger.info("Starting automated firewall management...")
+    firewall_manager.update_threat_intelligence()
+    firewall_manager.backup_firewall_config()
+    
+    # Keep the script running
+    try:
+        while True:
+            schedule.run_pending()
+            time.sleep(60)  # Check every minute
+    except KeyboardInterrupt:
+        firewall_manager.logger.info("Automated firewall management stopped by user")
+
+if __name__ == "__main__":
+    main()
+Save this script as firewall_automation.py:
+
+cat > firewall_automation.py << 'EOF'
+[Insert the Python script above]
+EOF
+
+chmod +x firewall_automation.py
+Subtask 3.3: Create pfSense API Integration Script
+Create a script to interact with pfSense API for rule management:
+
+#!/usr/bin/env python3
+"""
+pfSense API Integration Script
+Lab 6: Configure Secure Routing on pfSense/firewalld
+"""
+
+import requests
+import json
+import logging
+from urllib3.exceptions import InsecureRequestWarning
+
+# Disable SSL warnings for self-signed certificates
+requests.urllib3.disable_warnings(InsecureRequestWarning)
+
+class pfSenseAPI:
+    def __init__(self, host, username, password):
+        self.host = host
+        self.username = username
+        self.password = password
+        self.session = requests.Session()
+        self.session.verify = False
+        self.logger = logging.getLogger(__name__)
+        
+    def login(self):
+        """Authenticate with pfSense"""
+        login_url = f"https://{self.host}/api/v1/access_token"
+        
+        try:
+            response = self.session.post(
+                login_url,
+                json={
+                    "client_id": self.username,
+                    "client_token": self.password
+                }
+            )
+            
+            if response.status_code == 200:
+                token_data = response.json()
+                self.session.headers.update({
+                    'Authorization': f'Bearer {token_data["data"]["token"]}'
+                })
+                self.logger.info("Successfully authenticated with pfSense")
+                return True
+            else:
+                self.logger.error(f"Authentication failed: {response.status_code}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Login error: {e}")
+            return False
+    
+    def get_firewall_rules(self):
+        """Retrieve current firewall rules"""
+        try:
+            response = self.session.get(f"https://{self.host}/api/v1/firewall/rule")
+            if response.status_code == 200:
+                return response.json()
+            else:
+                self.logger.error(f"Failed to get rules: {response.status_code}")
+                return None
+        except Exception as e:
+            self.logger.error(f"Error getting rules: {e}")
+            return None
+    
+    def add_firewall_rule(self, rule_data):
+        """Add new firewall rule"""
+        try:
+            response = self.session.post(
+                f"https://{self.host}/api/v1/firewall/rule",
+                json=rule_data
+            )
+            
+            if response.status_code == 200:
+                self.logger.info("Firewall rule added successfully")
+                return response.json()
+            else:
+                self.logger.error(f"Failed to add rule: {response.status_code}")
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"Error adding rule: {e}")
+            return None
+
+# Example usage
+def main():
+    # Configure for your pfSense instance
+    pfsense = pfSenseAPI("192.168.100.1", "admin", "your_api_key")
+    
+    if pfsense.login():
+        # Example: Add a rule to block a specific IP
+        rule_data = {
+            "type": "block",
+            "interface": "wan",
+            "ipprotocol": "inet",
+            "protocol": "any",
+            "src": "192.168.1.100",
+            "dst": "any",
+            "descr": "Block suspicious IP"
+        }
+        
+        result = pfsense.add_firewall_rule(rule_data)
+        if result:
+            print("Rule added successfully")
+
+if __name__ == "__main__":
+    main()
+Save this as pfsense_api.py:
+
+cat > pfsense_api.py << 'EOF'
+[Insert the pfSense API script above]
+EOF
+
+chmod +x pfsense_api.py
+Subtask 3.4: Create Monitoring and Alerting Script
+Create a script to monitor network traffic and generate alerts:
+
+#!/usr/bin/env python3
+"""
+Network Monitoring and Alerting Script
+Lab 6: Configure Secure Routing on pfSense/firewalld
+"""
+
+import psutil
+import time
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import logging
+import json
+from datetime import datetime
+
+class NetworkMonitor:
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+        self.baseline_connections = 0
+        self.alert_threshold = 100  # connections
+        self.bandwidth_threshold = 1000000  # bytes per second
+        
+    def get_network_stats(self):
+        """Get current network statistics"""
+        stats = {
+            'connections': len(psutil.net_connections()),
+            'bytes_sent': psutil.net_io_counters().bytes_sent,
+            'bytes_recv': psutil.net_io_counters().bytes_recv,
+            'packets_sent': psutil.net_io_counters().packets_sent,
+            'packets_recv': psutil.net_io_counters().packets_recv,
+            'timestamp': datetime.now().isoformat()
+        }
+        return stats
+    
+    def check_suspicious_activity(self):
+        """Monitor for suspicious network activity"""
+        current_stats = self.get_network_stats()
+        
+        # Check for unusual number of connections
+        if current_stats['connections'] > self.alert_threshold:
+            self.logger.warning(f"High connection count detected: {current_stats['connections']}")
+            self.send_alert(f"High connection count: {current_stats['connections']}")
+        
+        # Monitor for port scanning attempts
+        suspicious_ports = []
+        connections = psutil.net_connections()
+        
+        for conn in connections:
+            if conn.status == 'SYN_SENT' and conn.laddr.port > 1024:
+                suspicious_ports.append(conn.laddr.port)
+        
+        if len(suspicious_ports) > 20:  # Many outbound connections
+            self.logger.warning(f"Possible port scanning detected: {len(suspicious_ports)} connections")
+            self.send_alert(f"Possible port scanning: {len(suspicious_ports)} outbound connections")
+        
+        return current_stats
+    
+    def send_alert(self, message):
+        """Send alert notification (placeholder - configure with your email settings)"""
+        self.logger.critical(f"ALERT: {message}")
+        
+        # In a real environment, configure SMTP settings
+        alert_data = {
+            'timestamp': datetime.now().isoformat(),
+            'message': message,
+            'severity': 'HIGH'
+        }
+        
+        # Save alert to file
+        with open('/tmp/security_alerts.json', 'a') as f:
+            f.write(json.dumps(alert_data) + '\n')
+    
+    def monitor_continuously(self, interval=60):
+        """Continuously monitor network activity"""
+        self.logger.info("Starting continuous network monitoring...")
+        
+        while True:
+            try:
+                stats = self.check_suspicious_activity()
+                self.logger.info(f"Network stats: {stats['connections']} connections")
+                time.sleep(interval)
+                
+            except KeyboardInterrupt:
+                self.logger.info("Monitoring stopped by user")
+                break
+            except Exception as e:
+                self.logger.error(f"Monitoring error: {e}")
+                time.sleep(interval)
+
+def main():
+    logging.basicConfig(level=logging.INFO)
+    monitor = NetworkMonitor()
+    monitor.monitor_continuously()
+
+if __name__ == "__main__":
+    main()
+Save this as network_monitor.py:
+
+cat > network_monitor.py << 'EOF'
+[Insert the network monitoring script above]
+EOF
+
+chmod +x network_monitor.py
+Subtask 3.5: Create Systemd Service for Automation
+Create a systemd service to run the automation scripts automatically:
+
+# Create systemd service file
+sudo tee /etc/systemd/system/firewall-automation.service << EOF
+[Unit]
+Description=Automated Firewall Management Service
+After=network.target firewalld.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/$USER/lab6-secure-routing/automation
+ExecStart=/home/$USER/lab6-secure-routing/automation/firewall-automation/bin/python /home/$USER/lab6-secure-routing/automation/firewall_automation.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Enable and start the service
+sudo systemctl daemon-reload
+sudo systemctl enable firewall-automation.service
+sudo systemctl start firewall-automation.service
+
+# Check service status
+sudo systemctl status firewall-automation.service
+Verification and Testing
+Test Firewall Rules
+Verify that your firewall configuration is working correctly:
+
+# Test firewalld rules
+sudo firewall-cmd --list-all-zones
+
+# Test specific zone rules
+sudo firewall-cmd --zone=internal-secure --list-all
+
+# Test rich rules
+sudo firewall-cmd --list-rich-rules
+
+# Check active connections
+sudo ss -tuln
+
+# Test port accessibility
+nmap -p 22,80,443 localhost
+Test Python Automation
+Run the automation scripts manually to verify functionality:
+
+# Activate virtual environment
+cd ~/lab6-secure-routing/automation
+source firewall-automation/bin/activate
+
+# Test firewall automation
+python3 firewall_automation.py &
+
+# Test network monitoring
+python3 network_monitor.py &
+
+# Check logs
+tail -f /var/log/firewall-automation.log
+Verify pfSense Configuration
+Access the pfSense web interface and verify:
+
+Firewall Rules: Check that rules are properly configured
+Routing Tables: Verify routing entries
+System Logs: Review security logs
+Interface Status: Confirm all interfaces are active
+Troubleshooting Common Issues
+pfSense VM Issues
+# If pfSense VM won't start
+VBoxManage showvminfo "pfSense-Lab" | grep State
+
+# Check VM logs
+VBoxManage debugvm "pfSense-Lab" dumpguestcore --filename pfsense-debug.log
+
+# Reset VM if needed
+VBoxManage controlvm "pfSense-Lab" reset
+Firewalld Issues
+# If firewalld fails to start
+sudo systemctl status firewalld
+sudo journalctl -u firewalld
+
+# Reset firewalld configuration
+sudo firewall-cmd --complete-reload
+
+# Check for configuration errors
+sudo firewall-cmd --check-config
+Python Script Issues
+# Check Python dependencies
+pip list
+
+# Test individual functions
+python3 -c "from firewall_automation import FirewallManager; fm = FirewallManager(); print('Import successful')"
+
+# Check permissions
+ls -la firewall_automation.py
+sudo chown $USER:$USER firewall_automation.py
+Security Best Practices Implemented
+This lab implements several security best practices:
+
+Defense in Depth: Multiple layers of security with pfSense and firewalld
+Automated Threat Response: Python scripts for dynamic rule updates
+Logging and Monitoring: Comprehensive logging of security events
+Regular Backups: Automated configuration backups
+Threat Intelligence Integration: External threat feed integration
+Fail-Safe Defaults: Restrictive default policies
+Principle of Least Privilege: Minimal required access rules
+Conclusion
+In this lab, you have successfully:
+
+Deployed pfSense in a virtualized environment for enterprise-grade routing and firewall capabilities
+Configured firewalld as an additional security layer with custom zones and rich rules
+Implemented Python automation for dynamic firewall rule management and threat response
+Integrated threat intelligence feeds for proactive security measures
+Created monitoring systems for continuous security assessment
+Established automated backup and reporting mechanisms
+This comprehensive setup demonstrates how modern network security combines traditional firewall technologies with automated threat response and continuous monitoring. The skills learned here are directly applicable to real-world network security implementations and align with industry best practices for defensible security architecture.
+
+The combination of pfSense's robust routing capabilities with Linux firewalld's flexibility, enhanced by Python automation, creates a powerful and adaptive security infrastructure that can respond to evolving threats while maintaining network performance and reliability.
+
+These techniques are essential for security professionals working in enterprise environments where network security must be both robust and manageable at scale. The automation components ensure that security policies can be maintained consistently and updated rapidly in response to new threats.
