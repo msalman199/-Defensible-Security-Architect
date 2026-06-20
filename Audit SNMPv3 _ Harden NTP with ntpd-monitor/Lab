@@ -1,0 +1,438 @@
+Audit SNMPv3 & Harden NTP with ntpd-monitor
+Objectives
+By the end of this lab, students will be able to:
+
+Identify and audit SNMPv3 security vulnerabilities in network configurations
+Implement NTP security monitoring using custom Python tools
+Develop automated scripts for network service security auditing
+Apply hardening techniques to SNMP and NTP services
+Generate security reports for infrastructure services
+Prerequisites
+Basic Linux command line proficiency
+Understanding of network protocols (SNMP, NTP)
+Python 3 programming fundamentals
+Basic system administration knowledge
+Familiarity with configuration file editing
+Lab Environment
+Al Nafi Cloud Machine Setup: This lab runs on a single Linux-based cloud machine. Click Start Lab to access your pre-configured Ubuntu 20.04 LTS environment with root access and internet connectivity.
+
+Task 1: Install and Configure Vulnerable SNMPv3
+Step 1: Install SNMP Packages
+# Update repositories and install SNMP tools
+sudo apt update
+sudo apt install -y snmpd snmp libsnmp-dev python3-pip
+
+# Install Python SNMP library
+pip3 install pysnmp
+Step 2: Create Vulnerable SNMPv3 Configuration
+# Backup original configuration
+sudo cp /etc/snmp/snmpd.conf /etc/snmp/snmpd.conf.backup
+
+# Create intentionally vulnerable configuration for testing
+sudo tee /etc/snmp/snmpd.conf > /dev/null << 'EOF'
+# Vulnerable SNMPv3 Configuration (Lab Testing Only)
+
+agentAddress udp:161
+
+# Weak authentication users
+createUser weakuser MD5 "password123" DES "enckey123"
+createUser testuser SHA "short" AES "weak"
+
+# Overly permissive access
+rouser weakuser
+rwuser testuser
+
+view all included .1 80
+
+# Restart and enable service
+sudo systemctl restart snmpd
+sudo systemctl enable snmpd
+Step 3: Verify SNMP Service
+# Check service status
+sudo systemctl status snmpd
+
+# Test SNMP query
+snmpget -v3 -u weakuser -l authPriv -a MD5 -A "password123" -x DES -X "enckey123" localhost 1.3.6.1.2.1.1.1.0
+Task 2: Develop SNMPv3 Security Auditor
+Step 1: Create Audit Script Template
+Create snmpv3_auditor.py:
+
+#!/usr/bin/env python3
+"""
+SNMPv3 Security Auditor
+Students: Complete the TODO sections to implement full auditing functionality
+"""
+
+import re
+import subprocess
+from datetime import datetime
+
+class SNMPv3Auditor:
+    def __init__(self, config_file="/etc/snmp/snmpd.conf"):
+        self.config_file = config_file
+        self.vulnerabilities = []
+        self.recommendations = []
+    
+    def read_config(self):
+        """Read SNMP configuration file"""
+        # TODO: Implement file reading with error handling
+        # TODO: Return configuration content as string
+        pass
+    
+    def audit_authentication(self, config_content):
+        """Audit authentication mechanisms for weak protocols"""
+        print("\n[+] Auditing Authentication...")
+        
+        # TODO: Search for MD5 authentication (weak)
+        # TODO: Check password length and complexity
+        # TODO: Identify common/default passwords
+        # TODO: Add findings to self.vulnerabilities list
+        
+        # Hint: Use re.findall() to parse createUser directives
+        pass
+    
+    def audit_encryption(self, config_content):
+        """Check for weak or missing encryption"""
+        print("\n[+] Auditing Encryption...")
+        
+        # TODO: Detect DES encryption usage (weak)
+        # TODO: Find users without encryption configured
+        # TODO: Recommend AES-128 or AES-256
+        pass
+    
+    def audit_access_control(self, config_content):
+        """Analyze access control settings"""
+        print("\n[+] Auditing Access Control...")
+        
+        # TODO: Check for 'noauth' access rules
+        # TODO: Identify overly broad MIB tree access
+        # TODO: Verify read-write access has proper security level
+        pass
+    
+    def check_network_exposure(self):
+        """Check if SNMP is exposed on all interfaces"""
+        # TODO: Use subprocess to run 'netstat -tulpn'
+        # TODO: Check if listening on 0.0.0.0:161
+        # TODO: Recommend binding to specific interfaces
+        pass
+    
+    def generate_report(self):
+        """Generate and save audit report"""
+        print("\n" + "="*60)
+        print("SNMPv3 SECURITY AUDIT REPORT")
+        print("="*60)
+        
+        # TODO: Display timestamp and vulnerability count
+        # TODO: List all vulnerabilities found
+        # TODO: Provide recommendations
+        # TODO: Save report to file with timestamp
+        pass
+    
+    def run_audit(self):
+        """Execute complete security audit"""
+        # TODO: Call all audit methods in sequence
+        # TODO: Generate final report
+        pass
+
+if __name__ == "__main__":
+    auditor = SNMPv3Auditor()
+    auditor.run_audit()
+Step 2: Implement Core Audit Functions
+Students should implement:
+
+Configuration file parsing with error handling
+Regular expression patterns to detect weak authentication (MD5)
+Password strength validation (minimum 12 characters)
+Encryption protocol checking (flag DES as weak)
+Access control analysis (detect noauth, overly permissive views)
+Step 3: Test the Auditor
+# Make script executable
+chmod +x snmpv3_auditor.py
+
+# Run audit
+python3 snmpv3_auditor.py
+
+# Review generated report
+cat snmpv3_audit_report_*.txt
+Task 3: Install and Configure NTP Service
+Step 1: Install NTP Daemon
+# Install NTP and monitoring tools
+sudo apt install -y ntp ntpstat
+
+# Create statistics directory
+sudo mkdir -p /var/log/ntpstats
+sudo chown ntp:ntp /var/log/ntpstats
+Step 2: Configure NTP with Security Settings
+# Backup original configuration
+sudo cp /etc/ntp.conf /etc/ntp.conf.backup
+
+# Create secure NTP configuration
+sudo tee /etc/ntp.conf > /dev/null << 'EOF'
+# Secure NTP Configuration
+
+# Public NTP pool servers
+server 0.pool.ntp.org iburst
+server 1.pool.ntp.org iburst
+server 2.pool.ntp.org iburst
+
+# Access restrictions
+restrict default kod nomodify notrap nopeer noquery
+restrict -6 default kod nomodify notrap nopeer noquery
+restrict 127.0.0.1
+restrict -6 ::1
+
+# Statistics
+statsdir /var/log/ntpstats/
+statistics loopstats peerstats
+filegen loopstats file loopstats type day enable
+filegen peerstats file peerstats type day enable
+
+driftfile /var/lib/ntp/ntp.drift
+EOF
+
+# Restart NTP service
+sudo systemctl restart ntp
+sudo systemctl enable ntp
+Step 3: Verify NTP Operation
+# Check service status
+sudo systemctl status ntp
+
+# View peer status
+ntpq -p
+
+# Check synchronization
+ntpstat
+Task 4: Develop NTP Security Monitor
+Step 1: Create NTP Monitor Template
+Create ntpd_monitor.py:
+
+#!/usr/bin/env python3
+"""
+NTP Security Monitor
+Students: Complete the monitoring and alerting functionality
+"""
+
+import subprocess
+import re
+import json
+from datetime import datetime
+
+class NTPMonitor:
+    def __init__(self):
+        self.alerts = []
+        self.baseline_offset = None
+    
+    def get_ntp_peers(self):
+        """Retrieve current NTP peer information"""
+        # TODO: Execute 'ntpq -p' command
+        # TODO: Parse output into structured data
+        # TODO: Return list of peer dictionaries
+        # Hint: Skip first 2 header lines, split by whitespace
+        pass
+    
+    def check_time_offset(self):
+        """Monitor for unusual time offsets"""
+        # TODO: Execute 'ntpq -c rv' to get offset
+        # TODO: Parse offset value from output
+        # TODO: Compare against baseline (set on first run)
+        # TODO: Alert if deviation exceeds 100ms threshold
+        pass
+    
+    def check_peer_reachability(self):
+        """Verify all configured peers are reachable"""
+        # TODO: Get peer list from get_ntp_peers()
+        # TODO: Check 'reach' field (octal value)
+        # TODO: Alert if any peer has reach=0
+        pass
+    
+    def check_stratum_levels(self):
+        """Monitor for unusual stratum changes"""
+        # TODO: Parse stratum values from peer data
+        # TODO: Alert if stratum > 10 (indicates sync issues)
+        pass
+    
+    def check_amplification_risk(self):
+        """Test for NTP amplification vulnerability"""
+        # TODO: Try 'ntpq -c monlist' command
+        # TODO: Check if command is disabled (should be)
+        # TODO: Alert if monlist is enabled (security risk)
+        pass
+    
+    def audit_ntp_config(self):
+        """Audit NTP configuration for security issues"""
+        config_file = '/etc/ntp.conf'
+        
+        # TODO: Read configuration file
+        # TODO: Check for 'restrict default' directive
+        # TODO: Verify nomodify, notrap, nopeer, noquery flags
+        # TODO: Check if authentication is configured
+        pass
+    
+    def generate_security_report(self):
+        """Create comprehensive security report"""
+        report = {
+            'timestamp': datetime.now().isoformat(),
+            'alerts': self.alerts,
+            'summary': {
+                'total_alerts': len(self.alerts),
+                'high_severity': 0,  # TODO: Count by severity
+                'medium_severity': 0
+            }
+        }
+        
+        # TODO: Save report as JSON file
+        # TODO: Print summary to console
+        pass
+    
+    def run_security_checks(self):
+        """Execute all security checks"""
+        # TODO: Call all check methods
+        # TODO: Collect results
+        # TODO: Generate report
+        pass
+
+if __name__ == "__main__":
+    monitor = NTPMonitor()
+    monitor.run_security_checks()
+Step 2: Implement Monitoring Functions
+Students should implement:
+
+NTP peer status parsing from ntpq -p output
+Time offset monitoring with baseline comparison
+Peer reachability verification (reach field analysis)
+Stratum level validation
+Configuration file security audit
+Alert generation and severity classification
+Step 3: Test NTP Monitor
+# Make executable
+chmod +x ntpd_monitor.py
+
+# Run security checks
+python3 ntpd_monitor.py
+
+# Review generated report
+cat ntp_security_report_*.json
+Task 5: Create Integrated Hardening Script
+Step 1: Develop Automation Template
+Create network_hardening.py:
+
+#!/usr/bin/env python3
+"""
+Network Infrastructure Hardening Automation
+Students: Implement automated hardening for SNMP and NTP
+"""
+
+import os
+import shutil
+from datetime import datetime
+
+class NetworkHardener:
+    def __init__(self):
+        self.results = []
+    
+    def backup_configs(self):
+        """Backup current configurations before changes"""
+        # TODO: Backup /etc/snmp/snmpd.conf
+        # TODO: Backup /etc/ntp.conf
+        # TODO: Add timestamp to backup filenames
+        pass
+    
+    def harden_snmpv3(self):
+        """Apply SNMPv3 security hardening"""
+        hardened_snmp = """# Hardened SNMPv3 Configuration
+agentAddress udp:127.0.0.1:161
+
+# Strong authentication and encryption
+createUser secureuser SHA-256 "ComplexPass123!@#" AES-256 "StrongEncKey456!@#"
+
+# Restrictive access
+rouser secureuser priv
+
+# Limited view
+view systemonly included .1.3.6.1.2.1.1
+view systemonly included .1.3.6.1.2.1.25.1
+
+restrict default kod nomodify notrap nopeer noquery
+restrict 127.0.0.1
+"""
+        
+        # TODO: Write hardened configuration to file
+        # TODO: Restart snmpd service
+        # TODO: Verify service is running
+        pass
+    
+    def harden_ntp(self):
+        """Apply NTP security hardening"""
+        # TODO: Write secure NTP configuration
+        # TODO: Disable monlist command
+        # TODO: Configure strict access restrictions
+        # TODO: Enable authentication (optional)
+        # TODO: Restart ntp service
+        pass
+    
+    def verify_hardening(self):
+        """Verify hardening was successful"""
+        # TODO: Test SNMP with new credentials
+        # TODO: Verify NTP restrictions
+        # TODO: Check service status
+        # TODO: Generate verification report
+        pass
+    
+    def rollback(self):
+        """Rollback to backup configurations if needed"""
+        # TODO: Restore backup files
+        # TODO: Restart services
+        pass
+
+if __name__ == "__main__":
+    hardener = NetworkHardener()
+    # TODO: Implement command-line interface
+    # TODO: Add options for backup, harden, verify, rollback
+Step 2: Implement Hardening Logic
+Students should implement:
+
+Configuration backup with timestamps
+Secure SNMP configuration generation (SHA-256, AES-256)
+NTP hardening with proper restrict directives
+Service restart and verification
+Rollback functionality for failed changes
+Step 3: Execute Hardening
+# Run hardening script
+sudo python3 network_hardening.py
+
+# Verify SNMP hardening
+snmpget -v3 -u secureuser -l authPriv -a SHA-256 -A "ComplexPass123!@#" -x AES-256 -X "StrongEncKey456!@#" localhost 1.3.6.1.2.1.1.1.0
+
+# Verify NTP restrictions
+ntpq -c "restrict"
+Expected Outcomes
+After completing this lab, students should have:
+
+Functional SNMPv3 auditor identifying weak authentication, encryption, and access controls
+NTP security monitor detecting time offsets, peer issues, and configuration vulnerabilities
+Automated hardening script applying security best practices
+Generated security reports documenting findings and remediation
+Understanding of common vulnerabilities in network infrastructure services
+Troubleshooting Tips
+SNMP Service Won't Start:
+
+Check configuration syntax: sudo snmpd -Lf /dev/null -c /etc/snmp/snmpd.conf
+Verify user creation directives are properly formatted
+Ensure no duplicate user definitions exist
+NTP Not Synchronizing:
+
+Check firewall rules: sudo ufw status
+Verify network connectivity to pool servers: ping 0.pool.ntp.org
+Review NTP logs: sudo journalctl -u ntp -n 50
+Python Scripts Fail:
+
+Verify Python 3 is installed: python3 --version
+Install missing modules: pip3 install pysnmp
+Check file permissions: chmod +x script.py
+Run with sudo if accessing system files
+Conclusion
+This lab provided hands-on experience auditing and hardening critical network infrastructure services. Students learned to identify SNMPv3 vulnerabilities including weak authentication protocols (MD5), insufficient encryption (DES), and overly permissive access controls. The NTP monitoring implementation demonstrated detection of time synchronization attacks, peer reachability issues, and amplification risks.
+
+Key takeaways include the importance of strong cryptographic protocols (SHA-256, AES-256), principle of least privilege in access control, and continuous monitoring for security anomalies. The automation scripts developed enable repeatable security assessments and consistent hardening across infrastructure deployments.
+
+These skills are essential for securing network management and time synchronization services in production environments, preventing common attack vectors like SNMP enumeration and NTP amplification DDoS attacks.
