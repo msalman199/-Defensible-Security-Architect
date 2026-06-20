@@ -1,0 +1,610 @@
+Build Segmentation Gateway with Suricata + nftables
+Objectives
+By the end of this lab, you will be able to:
+
+Install and configure Suricata for network intrusion detection and traffic monitoring
+Implement network segmentation using nftables firewall rules
+Create custom Suricata rules for segment-specific traffic monitoring
+Develop Python scripts to analyze network traffic patterns from Suricata logs
+Automate segmentation policy enforcement based on traffic analysis
+Validate network segmentation effectiveness through testing
+Prerequisites
+Before starting this lab, you should have:
+
+Basic Linux command line proficiency
+Understanding of networking fundamentals (IP addressing, ports, protocols)
+Familiarity with firewall concepts
+Basic Python programming knowledge
+Lab Environment
+Al Nafi provides ready-to-use Linux-based cloud machines for this lab. Click Start Lab to access your pre-configured environment with:
+
+Ubuntu 22.04 LTS
+Root access
+Internet connectivity
+Pre-configured package repositories
+Task 1: Install and Configure Suricata IDS
+Step 1.1: Install Suricata
+# Update system and install Suricata
+sudo apt update
+sudo apt install -y suricata suricata-update jq
+
+# Verify installation
+suricata --version
+Step 1.2: Configure Basic Suricata Settings
+# Backup original configuration
+sudo cp /etc/suricata/suricata.yaml /etc/suricata/suricata.yaml.backup
+
+# Edit configuration for network segments
+sudo nano /etc/suricata/suricata.yaml
+Update the following key sections:
+
+vars:
+  address-groups:
+    HOME_NET: "[192.168.1.0/24,192.168.100.0/24,192.168.200.0/24]"
+    EXTERNAL_NET: "!$HOME_NET"
+    DMZ_NET: "192.168.100.0/24"
+    INTERNAL_NET: "192.168.1.0/24"
+    MGMT_NET: "192.168.200.0/24"
+
+default-log-dir: /var/log/suricata/
+
+outputs:
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      filename: /var/log/suricata/eve.json
+      types:
+        - alert
+        - http
+        - dns
+        - tls
+        - flow
+        - netflow
+
+af-packet:
+  - interface: eth0
+    cluster-id: 99
+    cluster-type: cluster_flow
+Step 1.3: Update Suricata Rules and Create Custom Rules
+# Update default rules
+sudo suricata-update
+
+# Create custom rules directory
+sudo mkdir -p /etc/suricata/rules/custom
+
+# Create segmentation monitoring rules
+sudo tee /etc/suricata/rules/custom/segmentation.rules > /dev/null << 'EOF'
+# Network Segmentation Rules
+
+# Alert on DMZ to Internal communication (should be blocked)
+alert ip $DMZ_NET any -> $INTERNAL_NET any (msg:"DMZ to Internal communication attempt"; sid:1000001; rev:1;)
+
+# Monitor cross-segment scanning
+alert tcp any any -> any any (msg:"Port scan detected"; flags:S; threshold:type both, track by_src, count 20, seconds 60; sid:1000002; rev:1;)
+
+# Database access monitoring
+alert tcp any any -> any 3306 (msg:"MySQL access detected"; sid:1000003; rev:1;)
+alert tcp any any -> any 5432 (msg:"PostgreSQL access detected"; sid:1000004; rev:1;)
+
+# SSH access monitoring
+alert tcp !$MGMT_NET any -> any 22 (msg:"SSH from non-management network"; sid:1000005; rev:1;)
+
+# Large data transfers (potential exfiltration)
+alert tcp $INTERNAL_NET any -> $EXTERNAL_NET any (msg:"Large outbound transfer"; dsize:>50000; threshold:type limit, track by_src, count 1, seconds 60; sid:1000006; rev:1;)
+EOF
+
+# Include custom rules
+echo "include: /etc/suricata/rules/custom/segmentation.rules" | sudo tee -a /etc/suricata/suricata.yaml
+
+# Test configuration
+sudo suricata -T -c /etc/suricata/suricata.yaml
+
+# Start Suricata
+sudo systemctl enable suricata
+sudo systemctl start suricata
+sudo systemctl status suricata
+Task 2: Configure nftables for Network Segmentation
+Step 2.1: Install nftables
+# Install nftables
+sudo apt install -y nftables
+
+# Enable nftables service
+sudo systemctl enable nftables
+Step 2.2: Create Segmentation Rules
+# Create nftables configuration
+sudo tee /etc/nftables.conf > /dev/null << 'EOF'
+#!/usr/sbin/nft -f
+
+flush ruleset
+
+# Define network segments
+define INTERNAL_NET = 192.168.1.0/24
+define DMZ_NET = 192.168.100.0/24
+define MGMT_NET = 192.168.200.0/24
+
+# Define allowed services
+define WEB_PORTS = { 80, 443 }
+define SSH_PORT = 22
+define DNS_PORT = 53
+
+table inet filter {
+    chain input {
+        type filter hook input priority filter; policy drop;
+        
+        # Allow loopback and established connections
+        iif lo accept
+        ct state established,related accept
+        
+        # Allow ICMP
+        ip protocol icmp accept
+        
+        # Allow SSH from management network only
+        ip saddr $MGMT_NET tcp dport $SSH_PORT accept
+        
+        # Allow DNS
+        tcp dport $DNS_PORT accept
+        udp dport $DNS_PORT accept
+        
+        # Log and drop everything else
+        log prefix "INPUT-DROP: " drop
+    }
+    
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+        
+        # Allow established connections
+        ct state established,related accept
+        
+        # Internal to DMZ: only web traffic
+        ip saddr $INTERNAL_NET ip daddr $DMZ_NET tcp dport $WEB_PORTS accept
+        
+        # Internal to External: allow outbound
+        ip saddr $INTERNAL_NET ip daddr != { $DMZ_NET, $MGMT_NET } accept
+        
+        # Management to all: allow management traffic
+        ip saddr $MGMT_NET tcp dport { $SSH_PORT, 161, 443 } accept
+        
+        # DMZ to External: allow web traffic
+        ip saddr $DMZ_NET ip daddr != { $INTERNAL_NET, $MGMT_NET } tcp dport $WEB_PORTS accept
+        
+        # Block DMZ to Internal (critical segmentation rule)
+        ip saddr $DMZ_NET ip daddr $INTERNAL_NET log prefix "DMZ-TO-INTERNAL-BLOCK: " drop
+        
+        # Log all other drops
+        log prefix "FORWARD-DROP: " drop
+    }
+    
+    chain output {
+        type filter hook output priority filter; policy accept;
+    }
+}
+
+table inet nat {
+    chain prerouting {
+        type nat hook prerouting priority dstnat; policy accept;
+    }
+    
+    chain postrouting {
+        type nat hook postrouting priority srcnat; policy accept;
+        
+        # Masquerade outbound traffic
+        ip saddr { $INTERNAL_NET, $DMZ_NET, $MGMT_NET } oif eth0 masquerade
+    }
+}
+EOF
+
+# Apply configuration
+sudo nft -f /etc/nftables.conf
+
+# Verify rules
+sudo nft list ruleset
+Step 2.3: Enable IP Forwarding
+# Enable IP forwarding
+echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf
+sudo sysctl -p
+Task 3: Develop Traffic Analysis and Policy Enforcement Scripts
+Step 3.1: Create Traffic Analysis Script
+Create a Python script to analyze Suricata logs and identify traffic patterns.
+
+# Install required packages
+sudo apt install -y python3-pip
+pip3 install pandas
+
+# Create analysis script
+nano ~/traffic_analyzer.py
+Starter Template (students complete the implementation):
+
+#!/usr/bin/env python3
+"""
+Traffic Pattern Analysis Script
+Analyzes Suricata EVE logs for network segmentation monitoring
+"""
+
+import json
+import sys
+from datetime import datetime, timedelta
+from collections import defaultdict, Counter
+
+class TrafficAnalyzer:
+    def __init__(self, log_file="/var/log/suricata/eve.json"):
+        self.log_file = log_file
+        self.events = []
+        
+    def load_events(self, hours_back=24):
+        """
+        Load events from Suricata EVE log file
+        
+        Args:
+            hours_back: Number of hours to look back
+            
+        Returns:
+            Boolean indicating success
+        """
+        # TODO: Open and read the log file
+        # TODO: Parse JSON events
+        # TODO: Filter events by timestamp
+        # TODO: Store events in self.events list
+        pass
+    
+    def classify_segment(self, ip_address):
+        """
+        Classify IP address into network segments
+        
+        Args:
+            ip_address: IP address string
+            
+        Returns:
+            Segment name (Internal, DMZ, Management, External)
+        """
+        # TODO: Check if IP is in 192.168.1.0/24 (Internal)
+        # TODO: Check if IP is in 192.168.100.0/24 (DMZ)
+        # TODO: Check if IP is in 192.168.200.0/24 (Management)
+        # TODO: Otherwise classify as External
+        pass
+    
+    def analyze_cross_segment_traffic(self):
+        """
+        Analyze traffic crossing network segments
+        
+        Returns:
+            Dictionary with cross-segment traffic statistics
+        """
+        # TODO: Iterate through events
+        # TODO: Classify source and destination segments
+        # TODO: Count traffic between different segments
+        # TODO: Return statistics dictionary
+        pass
+    
+    def detect_anomalies(self):
+        """
+        Detect potential security anomalies
+        
+        Returns:
+            List of detected anomalies
+        """
+        anomalies = []
+        
+        # TODO: Detect high connection counts from single source
+        # TODO: Detect port scanning behavior
+        # TODO: Detect unusual protocols
+        # TODO: Detect DMZ to Internal communication attempts
+        
+        return anomalies
+    
+    def generate_report(self):
+        """
+        Generate comprehensive traffic analysis report
+        """
+        print("=== TRAFFIC ANALYSIS REPORT ===\n")
+        
+        # TODO: Display total events analyzed
+        # TODO: Display cross-segment traffic summary
+        # TODO: Display top talkers
+        # TODO: Display detected anomalies
+        # TODO: Display protocol distribution
+        pass
+
+def main():
+    analyzer = TrafficAnalyzer()
+    
+    # TODO: Load events
+    # TODO: Perform analysis
+    # TODO: Generate report
+    
+    pass
+
+if __name__ == "__main__":
+    main()
+Step 3.2: Create Policy Enforcement Script
+Create a script to automatically update nftables rules based on traffic analysis.
+
+nano ~/policy_enforcer.py
+Starter Template:
+
+#!/usr/bin/env python3
+"""
+Automated Policy Enforcement Script
+Updates nftables rules based on traffic analysis
+"""
+
+import subprocess
+import json
+from datetime import datetime
+
+class PolicyEnforcer:
+    def __init__(self):
+        self.blocked_ips = set()
+        self.rules_applied = []
+        
+    def analyze_threats(self, log_file="/var/log/suricata/eve.json"):
+        """
+        Analyze Suricata logs for threats
+        
+        Args:
+            log_file: Path to Suricata EVE log
+            
+        Returns:
+            List of IP addresses to block
+        """
+        threats = []
+        
+        # TODO: Read Suricata alerts
+        # TODO: Identify high-severity alerts
+        # TODO: Extract source IP addresses
+        # TODO: Return list of IPs to block
+        
+        return threats
+    
+    def block_ip(self, ip_address, reason="Security threat"):
+        """
+        Add nftables rule to block IP address
+        
+        Args:
+            ip_address: IP to block
+            reason: Reason for blocking
+        """
+        # TODO: Construct nftables command
+        # TODO: Execute command using subprocess
+        # TODO: Log the action
+        # TODO: Add to blocked_ips set
+        pass
+    
+    def unblock_ip(self, ip_address):
+        """
+        Remove nftables rule blocking IP address
+        
+        Args:
+            ip_address: IP to unblock
+        """
+        # TODO: Construct nftables delete command
+        # TODO: Execute command
+        # TODO: Remove from blocked_ips set
+        pass
+    
+    def enforce_segment_isolation(self):
+        """
+        Verify and enforce network segment isolation rules
+        """
+        # TODO: Check if DMZ to Internal traffic is blocked
+        # TODO: Verify management network restrictions
+        # TODO: Ensure proper NAT rules are in place
+        pass
+    
+    def generate_enforcement_report(self):
+        """
+        Generate report of enforcement actions taken
+        """
+        print("=== POLICY ENFORCEMENT REPORT ===\n")
+        
+        # TODO: Display blocked IPs
+        # TODO: Display rules applied
+        # TODO: Display timestamp of actions
+        pass
+
+def main():
+    enforcer = PolicyEnforcer()
+    
+    # TODO: Analyze threats
+    # TODO: Block identified threats
+    # TODO: Enforce segment isolation
+    # TODO: Generate report
+    
+    pass
+
+if __name__ == "__main__":
+    main()
+Step 3.3: Create Monitoring Dashboard Script
+nano ~/segment_monitor.py
+Starter Template:
+
+#!/usr/bin/env python3
+"""
+Real-time Segmentation Monitoring Dashboard
+Displays live network segmentation status
+"""
+
+import time
+import subprocess
+import os
+
+class SegmentMonitor:
+    def __init__(self):
+        self.refresh_interval = 5
+        
+    def get_nftables_stats(self):
+        """
+        Retrieve nftables statistics
+        
+        Returns:
+            Dictionary with rule statistics
+        """
+        # TODO: Execute 'nft list ruleset' command
+        # TODO: Parse output for packet/byte counts
+        # TODO: Return statistics dictionary
+        pass
+    
+    def get_suricata_stats(self):
+        """
+        Retrieve Suricata statistics
+        
+        Returns:
+            Dictionary with Suricata stats
+        """
+        # TODO: Read Suricata stats from log or socket
+        # TODO: Parse statistics
+        # TODO: Return stats dictionary
+        pass
+    
+    def check_segment_health(self):
+        """
+        Check health of network segments
+        
+        Returns:
+            Dictionary with segment health status
+        """
+        health = {}
+        
+        # TODO: Check if Suricata is running
+        # TODO: Check if nftables rules are loaded
+        # TODO: Verify segment isolation rules
+        # TODO: Return health status
+        
+        return health
+    
+    def display_dashboard(self):
+        """
+        Display monitoring dashboard
+        """
+        os.system('clear')
+        print("=" * 60)
+        print("NETWORK SEGMENTATION MONITORING DASHBOARD")
+        print("=" * 60)
+        
+        # TODO: Display nftables statistics
+        # TODO: Display Suricata statistics
+        # TODO: Display segment health
+        # TODO: Display recent alerts
+        
+        print(f"\nLast updated: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print("Press Ctrl+C to exit")
+    
+    def run(self):
+        """
+        Run monitoring dashboard in loop
+        """
+        # TODO: Implement continuous monitoring loop
+        # TODO: Refresh dashboard at intervals
+        # TODO: Handle keyboard interrupt gracefully
+        pass
+
+def main():
+    monitor = SegmentMonitor()
+    monitor.run()
+
+if __name__ == "__main__":
+    main()
+Task 4: Test and Validate Network Segmentation
+Step 4.1: Test Segment Isolation
+# Test 1: Verify DMZ cannot reach Internal network
+# From DMZ host (192.168.100.10), try to ping Internal (192.168.1.10)
+ping -c 3 192.168.1.10
+# Expected: Should fail or timeout
+
+# Test 2: Verify Internal can reach DMZ web services
+# From Internal host, access DMZ web server
+curl http://192.168.100.10
+# Expected: Should succeed
+
+# Test 3: Verify Management can access all segments
+# From Management host (192.168.200.5), SSH to Internal
+ssh user@192.168.1.10
+# Expected: Should succeed
+Step 4.2: Generate Test Traffic
+# Create traffic generation script
+cat > ~/generate_traffic.sh << 'EOF'
+#!/bin/bash
+
+echo "Generating test traffic..."
+
+# Normal web traffic
+curl -s http://192.168.100.10 > /dev/null
+
+# DNS queries
+nslookup google.com > /dev/null
+
+# SSH attempts (will trigger alerts if from wrong segment)
+timeout 2 nc -zv 192.168.1.10 22 2>&1
+
+# Port scan simulation (will trigger alerts)
+for port in {20..30}; do
+    timeout 1 nc -zv 192.168.1.10 $port 2>&1
+done
+
+echo "Traffic generation complete"
+EOF
+
+chmod +x ~/generate_traffic.sh
+./generate_traffic.sh
+Step 4.3: Analyze Results
+# Check Suricata alerts
+sudo tail -f /var/log/suricata/fast.log
+
+# Check nftables logs
+sudo journalctl -f | grep -E "INPUT-DROP|FORWARD-DROP|DMZ-TO-INTERNAL"
+
+# Run your traffic analyzer
+python3 ~/traffic_analyzer.py
+
+# Check nftables statistics
+sudo nft list ruleset -a
+Expected Outcomes
+After completing this lab, you should observe:
+
+Suricata successfully monitoring network traffic and generating alerts
+nftables rules blocking unauthorized cross-segment communication
+DMZ hosts unable to initiate connections to Internal network
+Management network able to access all segments
+Python scripts successfully analyzing traffic patterns
+Automated policy enforcement blocking detected threats
+Clear visibility into network segmentation effectiveness
+Troubleshooting Tips
+Issue: Suricata not capturing traffic
+
+Verify network interface name: ip addr show
+Check Suricata is running: sudo systemctl status suricata
+Review logs: sudo tail -f /var/log/suricata/suricata.log
+Ensure interface is in promiscuous mode: sudo ip link set eth0 promisc on
+Issue: nftables rules not blocking traffic
+
+Verify rules are loaded: sudo nft list ruleset
+Check IP forwarding is enabled: cat /proc/sys/net/ipv4/ip_forward
+Review nftables logs: sudo journalctl -u nftables
+Test with explicit drop rule: sudo nft add rule inet filter forward ip saddr 192.168.100.0/24 ip daddr 192.168.1.0/24 drop
+Issue: Python scripts cannot read logs
+
+Check file permissions: ls -l /var/log/suricata/eve.json
+Add user to suricata group: sudo usermod -aG suricata $USER
+Verify log file exists and is being written: sudo tail /var/log/suricata/eve.json
+Issue: No alerts being generated
+
+Update Suricata rules: sudo suricata-update
+Verify custom rules syntax: sudo suricata -T -c /etc/suricata/suricata.yaml
+Generate test traffic to trigger alerts
+Check alert threshold settings in rules
+Conclusion
+In this lab, you built a comprehensive network segmentation gateway using Suricata IDS and nftables firewall. You learned to:
+
+Deploy Suricata for deep packet inspection and threat detection
+Implement network segmentation using nftables with zone-based policies
+Create custom detection rules for segment-specific monitoring
+Develop Python automation for traffic analysis and policy enforcement
+Validate segmentation effectiveness through testing
+This architecture provides defense-in-depth by combining network segmentation (limiting lateral movement) with intrusion detection (identifying threats). The automated analysis and enforcement capabilities enable dynamic security posture adjustment based on observed traffic patterns.
+
+Key takeaways:
+
+Network segmentation limits blast radius of security incidents
+IDS/IPS integration provides visibility into segment traffic
+Automated policy enforcement reduces response time to threats
+Continuous monitoring validates segmentation effectiveness
+Continue exploring by implementing additional features like automated incident response, integration with SIEM systems, or advanced traffic analysis using machine learning techniques.
