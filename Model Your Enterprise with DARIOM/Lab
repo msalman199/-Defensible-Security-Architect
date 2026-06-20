@@ -1,0 +1,526 @@
+Model Your Enterprise with DARIOM
+Lab Objectives
+By the end of this lab, students will be able to:
+
+Apply the DARIOM methodology (Discover, Assess, Redesign, Implement, Monitor) for enterprise security modeling
+Create network diagrams using Draw.io to visualize enterprise architecture
+Integrate MITRE ATT&CK Navigator to identify threat vectors
+Document security improvements using Python automation
+Develop actionable security assessment workflows
+Prerequisites
+Basic understanding of network security concepts
+Familiarity with Linux command line
+Basic Python programming knowledge
+Understanding of enterprise network components
+Lab Environment
+Al Nafi Cloud Machine: Click Start Lab to access your pre-configured Linux environment with all necessary tools installed.
+
+Task 1: Discover - Map Enterprise Network Architecture
+Step 1: Install Draw.io
+# Update system and install Draw.io
+sudo apt update
+wget https://github.com/jgraph/drawio-desktop/releases/download/v22.1.11/drawio-amd64-22.1.11.deb
+sudo dpkg -i drawio-amd64-22.1.11.deb
+sudo apt-get install -f
+Step 2: Create Discovery Script
+Create enterprise_discovery.py:
+
+#!/usr/bin/env python3
+"""
+Enterprise Network Discovery Tool
+Students: Complete the TODO sections to implement discovery functionality
+"""
+
+import json
+from datetime import datetime
+
+class NetworkDiscovery:
+    def __init__(self):
+        self.discovery_data = {
+            "timestamp": datetime.now().isoformat(),
+            "enterprise_info": {},
+            "network_segments": [],
+            "assets": [],
+            "security_controls": []
+        }
+    
+    def collect_enterprise_info(self):
+        """Collect basic enterprise information"""
+        print("=== ENTERPRISE DISCOVERY ===")
+        # TODO: Prompt user for organization name, industry, employee count
+        # TODO: Store information in self.discovery_data["enterprise_info"]
+        pass
+    
+    def define_network_segments(self):
+        """Define network segments"""
+        default_segments = [
+            {"name": "DMZ", "purpose": "Public services", "trust": "Low"},
+            {"name": "Internal LAN", "purpose": "Workstations", "trust": "Medium"},
+            {"name": "Server Farm", "purpose": "Servers", "trust": "High"}
+        ]
+        # TODO: Display default segments
+        # TODO: Allow user to add custom segments
+        # TODO: Store in self.discovery_data["network_segments"]
+        pass
+    
+    def identify_assets(self):
+        """Identify critical assets"""
+        asset_types = ["Web Servers", "Database Servers", "Workstations", 
+                      "Domain Controllers", "Firewalls"]
+        # TODO: For each asset type, prompt for count and criticality
+        # TODO: Store in self.discovery_data["assets"]
+        pass
+    
+    def document_controls(self):
+        """Document existing security controls"""
+        controls = ["Firewall", "Antivirus", "IDS/IPS", "SIEM", "Backup"]
+        # TODO: For each control, check if implemented
+        # TODO: Rate effectiveness (1-5)
+        # TODO: Store in self.discovery_data["security_controls"]
+        pass
+    
+    def save_discovery(self):
+        """Save discovery data to JSON"""
+        filename = f"discovery_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        # TODO: Write self.discovery_data to JSON file
+        # TODO: Return filename
+        pass
+
+def main():
+    discovery = NetworkDiscovery()
+    # TODO: Call all discovery methods
+    # TODO: Save results
+    print("Discovery phase complete!")
+
+if __name__ == "__main__":
+    main()
+Step 3: Run Discovery
+chmod +x enterprise_discovery.py
+python3 enterprise_discovery.py
+Step 4: Create Network Diagram
+Open Draw.io and create your enterprise network model:
+
+Add network zones (use colored rectangles):
+
+Internet (blue)
+DMZ (yellow)
+Internal LAN (green)
+Server Farm (orange)
+Place security devices:
+
+External firewall (between Internet and DMZ)
+Internal firewall (between zones)
+IDS/IPS sensors
+Add assets based on discovery data:
+
+Web servers in DMZ
+Database servers in Server Farm
+Workstations in Internal LAN
+Label connections with protocols and ports
+
+Save as enterprise_network.drawio
+
+Task 2: Assess - Analyze Threats with MITRE ATT&CK
+Step 1: Install ATT&CK Navigator
+# Install Node.js
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# Clone and setup Navigator
+git clone https://github.com/mitre-attack/attack-navigator.git
+cd attack-navigator
+npm install
+npm run build
+npm start &
+
+# Access at http://localhost:4200
+Step 2: Create Threat Assessment Script
+Create threat_assessment.py:
+
+#!/usr/bin/env python3
+"""
+MITRE ATT&CK Threat Assessment
+Students: Complete threat analysis implementation
+"""
+
+import json
+import requests
+from datetime import datetime
+
+class ThreatAssessment:
+    def __init__(self, discovery_file):
+        self.discovery_file = discovery_file
+        self.threat_data = {
+            "timestamp": datetime.now().isoformat(),
+            "attack_techniques": [],
+            "risk_scores": {}
+        }
+        # TODO: Load discovery data from file
+    
+    def map_assets_to_threats(self):
+        """Map enterprise assets to ATT&CK techniques"""
+        threat_mapping = {
+            "Web Servers": ["T1190", "T1505.003"],  # Exploit Public App, Web Shell
+            "Database Servers": ["T1552.001", "T1005"],  # Credentials, Data Theft
+            "Domain Controllers": ["T1558.003", "T1003.001"],  # Kerberoasting, LSASS
+            "Workstations": ["T1566.001", "T1204.002"]  # Phishing, Malicious File
+        }
+        # TODO: For each asset in discovery data, map to techniques
+        # TODO: Store in self.threat_data["attack_techniques"]
+        pass
+    
+    def calculate_risk_scores(self):
+        """Calculate risk scores for each technique"""
+        criticality_values = {"Low": 1, "Medium": 2, "High": 3, "Critical": 4}
+        # TODO: For each technique, calculate risk based on:
+        #       - Asset criticality
+        #       - Asset count
+        #       - Existing security controls
+        # TODO: Store scores in self.threat_data["risk_scores"]
+        pass
+    
+    def generate_navigator_layer(self):
+        """Generate ATT&CK Navigator layer file"""
+        layer = {
+            "name": "Enterprise Threat Assessment",
+            "versions": {"attack": "12", "navigator": "4.8.1"},
+            "domain": "enterprise-attack",
+            "techniques": []
+        }
+        # TODO: For each technique with risk score:
+        #       - Add to layer["techniques"]
+        #       - Set color based on risk (red=high, yellow=medium, green=low)
+        #       - Include score and comment
+        # TODO: Save layer to JSON file
+        pass
+    
+    def save_assessment(self):
+        """Save complete assessment report"""
+        filename = f"assessment_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        # TODO: Write self.threat_data to JSON file
+        pass
+
+def main():
+    # TODO: Find latest discovery file
+    # TODO: Initialize ThreatAssessment
+    # TODO: Run all assessment methods
+    # TODO: Generate Navigator layer
+    print("Assessment phase complete!")
+
+if __name__ == "__main__":
+    main()
+Step 3: Run Threat Assessment
+pip3 install requests
+chmod +x threat_assessment.py
+python3 threat_assessment.py
+Step 4: Visualize in ATT&CK Navigator
+Open http://localhost:4200 in browser
+Click Open Existing Layer
+Upload generated layer JSON file
+Analyze threat visualization:
+Red = Critical risk
+Orange = High risk
+Yellow = Medium risk
+Green = Low risk
+Export visualization as PNG
+Task 3: Redesign - Document Security Improvements
+Step 1: Create Redesign Framework
+Create security_redesign.py:
+
+#!/usr/bin/env python3
+"""
+Security Redesign Framework
+Students: Implement gap analysis and roadmap generation
+"""
+
+import json
+from datetime import datetime, timedelta
+
+class SecurityRedesign:
+    def __init__(self, discovery_file, assessment_file):
+        self.redesign_plan = {
+            "timestamp": datetime.now().isoformat(),
+            "current_state": {},
+            "target_state": {},
+            "gaps": [],
+            "roadmap": []
+        }
+        # TODO: Load discovery and assessment data
+    
+    def analyze_current_state(self):
+        """Analyze current security posture"""
+        # TODO: Calculate average control effectiveness
+        # TODO: Count high-risk techniques
+        # TODO: Determine security maturity level (Initial/Basic/Intermediate/Advanced)
+        # TODO: Store in self.redesign_plan["current_state"]
+        pass
+    
+    def define_target_state(self):
+        """Define target security architecture"""
+        target_controls = {
+            "Network Security": ["Next-Gen Firewall", "Network Segmentation", "IDS/IPS"],
+            "Endpoint Security": ["EDR", "Application Whitelisting", "Encryption"],
+            "Identity Management": ["MFA", "PAM", "SSO"],
+            "Data Protection": ["DLP", "Database Monitoring", "Encryption"],
+            "Security Operations": ["SIEM", "Threat Intelligence", "Vulnerability Management"]
+        }
+        # TODO: For each category, define required controls with priority
+        # TODO: Store in self.redesign_plan["target_state"]
+        pass
+    
+    def identify_gaps(self):
+        """Identify security gaps"""
+        # TODO: Compare current controls vs target controls
+        # TODO: Identify missing controls
+        # TODO: Identify controls needing improvement
+        # TODO: Prioritize gaps (High/Medium/Low)
+        # TODO: Store in self.redesign_plan["gaps"]
+        pass
+    
+    def create_roadmap(self):
+        """Create implementation roadmap"""
+        phases = {
+            "Phase 1 (0-3 months)": [],
+            "Phase 2 (3-6 months)": [],
+            "Phase 3 (6-12 months)": []
+        }
+        # TODO: Assign gaps to phases based on priority
+        # TODO: High priority -> Phase 1
+        # TODO: Medium priority -> Phase 2
+        # TODO: Low priority -> Phase 3
+        # TODO: Store in self.redesign_plan["roadmap"]
+        pass
+    
+    def estimate_budget(self):
+        """Estimate implementation costs"""
+        cost_estimates = {
+            "Next-Gen Firewall": 50000,
+            "EDR": 30000,
+            "SIEM": 75000,
+            "MFA": 15000
+        }
+        # TODO: Calculate total cost for each phase
+        # TODO: Add to roadmap
+        pass
+    
+    def save_redesign_plan(self):
+        """Save redesign plan"""
+        filename = f"redesign_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        # TODO: Write self.redesign_plan to JSON file
+        pass
+
+def main():
+    # TODO: Load discovery and assessment files
+    # TODO: Initialize SecurityRedesign
+    # TODO: Run all redesign methods
+    # TODO: Save redesign plan
+    print("Redesign phase complete!")
+
+if __name__ == "__main__":
+    main()
+Step 2: Run Redesign Analysis
+chmod +x security_redesign.py
+python3 security_redesign.py
+Step 3: Generate Implementation Report
+Create generate_report.py:
+
+#!/usr/bin/env python3
+"""
+Generate comprehensive DARIOM report
+Students: Create HTML/PDF report from all phases
+"""
+
+import json
+from datetime import datetime
+
+def load_all_data():
+    """Load data from all phases"""
+    # TODO: Load discovery, assessment, and redesign JSON files
+    # TODO: Return combined data dictionary
+    pass
+
+def generate_html_report(data):
+    """Generate HTML report"""
+    html_template = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>DARIOM Security Assessment Report</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 40px; }}
+            h1 {{ color: #2c3e50; }}
+            h2 {{ color: #34495e; border-bottom: 2px solid #3498db; }}
+            table {{ border-collapse: collapse; width: 100%; margin: 20px 0; }}
+            th, td {{ border: 1px solid #ddd; padding: 12px; text-align: left; }}
+            th {{ background-color: #3498db; color: white; }}
+            .high {{ color: red; font-weight: bold; }}
+            .medium {{ color: orange; }}
+            .low {{ color: green; }}
+        </style>
+    </head>
+    <body>
+        <h1>Enterprise Security Assessment Report</h1>
+        <!-- TODO: Add sections for each DARIOM phase -->
+        <!-- TODO: Include discovery summary -->
+        <!-- TODO: Include threat assessment results -->
+        <!-- TODO: Include redesign recommendations -->
+        <!-- TODO: Include implementation roadmap -->
+    </body>
+    </html>
+    """
+    # TODO: Populate template with actual data
+    # TODO: Save as HTML file
+    pass
+
+def main():
+    # TODO: Load all phase data
+    # TODO: Generate HTML report
+    # TODO: Print report location
+    print("Report generation complete!")
+
+if __name__ == "__main__":
+    main()
+Step 4: Generate Final Report
+chmod +x generate_report.py
+python3 generate_report.py
+Task 4: Implement and Monitor - Create Action Plan
+Step 1: Document Implementation Steps
+Create implementation_tracker.py:
+
+#!/usr/bin/env python3
+"""
+Implementation Tracker
+Students: Track security improvement implementation
+"""
+
+import json
+from datetime import datetime
+
+class ImplementationTracker:
+    def __init__(self, redesign_file):
+        self.tracker = {
+            "start_date": datetime.now().isoformat(),
+            "improvements": [],
+            "status": {}
+        }
+        # TODO: Load redesign plan
+    
+    def create_tasks(self):
+        """Create implementation tasks from roadmap"""
+        # TODO: For each improvement in roadmap:
+        #       - Create task with description, priority, phase
+        #       - Set status to "Not Started"
+        #       - Assign estimated completion date
+        # TODO: Store in self.tracker["improvements"]
+        pass
+    
+    def update_status(self, task_id, new_status):
+        """Update task status"""
+        # TODO: Update task status (Not Started/In Progress/Complete)
+        # TODO: Record completion date if complete
+        pass
+    
+    def generate_progress_report(self):
+        """Generate progress report"""
+        # TODO: Calculate completion percentage
+        # TODO: Identify overdue tasks
+        # TODO: Generate summary report
+        pass
+
+def main():
+    # TODO: Initialize tracker
+    # TODO: Create tasks from redesign plan
+    # TODO: Save tracker data
+    print("Implementation tracker created!")
+
+if __name__ == "__main__":
+    main()
+Step 2: Setup Monitoring Framework
+Create monitoring checklist:
+
+#!/usr/bin/env python3
+"""
+Security Monitoring Framework
+Students: Define monitoring procedures
+"""
+
+def define_monitoring_procedures():
+    """Define what to monitor"""
+    monitoring_areas = {
+        "Network Traffic": {
+            "metrics": ["Bandwidth usage", "Connection attempts", "Blocked traffic"],
+            "tools": ["Firewall logs", "IDS/IPS"],
+            "frequency": "Real-time"
+        },
+        "Endpoint Security": {
+            "metrics": ["Malware detections", "Policy violations", "Patch status"],
+            "tools": ["Antivirus", "EDR"],
+            "frequency": "Daily"
+        },
+        "Access Control": {
+            "metrics": ["Failed logins", "Privilege escalations", "Account changes"],
+            "tools": ["SIEM", "Active Directory logs"],
+            "frequency": "Real-time"
+        }
+    }
+    # TODO: For each area, document:
+    #       - What to monitor
+    #       - Which tools to use
+    #       - Alert thresholds
+    #       - Response procedures
+    pass
+
+def create_monitoring_dashboard():
+    """Create monitoring dashboard specification"""
+    # TODO: Define key performance indicators (KPIs)
+    # TODO: Specify dashboard widgets
+    # TODO: Set alert rules
+    pass
+
+if __name__ == "__main__":
+    define_monitoring_procedures()
+    create_monitoring_dashboard()
+Expected Outcomes
+After completing this lab, you will have:
+
+Discovery artifacts: Network diagram, asset inventory, control documentation
+Assessment results: Threat analysis, risk scores, ATT&CK Navigator visualization
+Redesign plan: Gap analysis, security improvements, implementation roadmap
+Implementation tools: Task tracker, progress monitoring
+Complete DARIOM workflow: End-to-end enterprise security assessment
+Troubleshooting Tips
+Draw.io won't start:
+
+# Check if installed correctly
+dpkg -l | grep drawio
+# Reinstall if needed
+sudo apt-get install -f
+ATT&CK Navigator not loading:
+
+# Check Node.js version
+node --version  # Should be v18+
+# Restart Navigator
+cd attack-navigator
+npm start
+Python scripts fail:
+
+# Verify Python version
+python3 --version  # Should be 3.8+
+# Install missing packages
+pip3 install requests json datetime
+JSON file not found errors:
+
+Ensure you run scripts in order: discovery → assessment → redesign
+Check current directory for generated JSON files
+Use absolute paths if needed
+Conclusion
+This lab demonstrated the complete DARIOM methodology for enterprise security modeling. You learned to:
+
+Discover enterprise architecture through systematic documentation
+Assess threats using MITRE ATT&CK framework
+Redesign security controls based on gap analysis
+Implement improvements through structured roadmaps
+Monitor security posture with defined procedures
+The DARIOM approach provides a repeatable framework for continuous security improvement. Apply these techniques to real-world enterprise environments, adapting the methodology to specific organizational needs and compliance requirements.
+
+Next Steps: Practice with different enterprise scenarios, integrate additional security tools, and automate more of the DARIOM workflow using Python scripts.
