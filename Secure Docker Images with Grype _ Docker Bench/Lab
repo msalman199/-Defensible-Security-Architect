@@ -1,0 +1,505 @@
+Secure Docker Images with Grype & Docker Bench
+Objectives
+By the end of this lab, students will be able to:
+
+Install and configure Grype vulnerability scanner and Docker Bench Security
+Scan Docker images for known vulnerabilities and security misconfigurations
+Interpret vulnerability scan results and prioritize remediation efforts
+Automate security scanning with Python scripts
+Implement Docker security best practices and hardening techniques
+Prerequisites
+Basic Docker container and image knowledge
+Linux command line proficiency
+Python 3 fundamentals
+Understanding of cybersecurity and vulnerability concepts
+Lab Environment
+Al Nafi provides ready-to-use Linux-based cloud machines for this lab. Click Start Lab to access your pre-configured environment with Docker pre-installed.
+
+Task 1: Install Security Scanning Tools
+Step 1.1: Update System and Verify Docker
+# Update system packages
+sudo apt update && sudo apt upgrade -y
+
+# Install dependencies
+sudo apt install -y curl wget git python3 python3-pip jq
+
+# Verify Docker installation
+docker --version
+
+# Add user to docker group (if needed)
+sudo usermod -aG docker $USER
+newgrp docker
+Step 1.2: Install Grype Vulnerability Scanner
+# Install Grype
+curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+
+# Verify installation
+grype version
+
+# Update vulnerability database
+grype db update
+Step 1.3: Install Docker Bench Security
+# Clone Docker Bench repository
+git clone https://github.com/docker/docker-bench-security.git
+cd docker-bench-security
+chmod +x docker-bench-security.sh
+cd ~
+Step 1.4: Pull Test Images
+# Pull various images for testing
+docker pull nginx:latest
+docker pull nginx:1.20
+docker pull ubuntu:18.04
+docker pull alpine:3.14
+docker pull python:3.9
+
+# Verify downloaded images
+docker images
+Task 2: Perform Vulnerability Scanning
+Step 2.1: Basic Grype Scanning
+# Scan nginx latest
+grype nginx:latest
+
+# Scan older Ubuntu (likely more vulnerabilities)
+grype ubuntu:18.04
+
+# Scan Alpine (typically fewer vulnerabilities)
+grype alpine:3.14
+Step 2.2: Generate Scan Reports
+# Create reports directory
+mkdir -p ~/security-reports
+
+# Generate JSON report
+grype nginx:latest -o json > ~/security-reports/nginx-scan.json
+
+# Generate table format
+grype ubuntu:18.04 -o table > ~/security-reports/ubuntu-scan.txt
+
+# Filter by severity (only high and critical)
+grype nginx:latest --fail-on high
+Step 2.3: Analyze Vulnerability Results
+# View JSON report with jq
+cat ~/security-reports/nginx-scan.json | jq '.matches[] | select(.vulnerability.severity == "Critical")'
+
+# Count vulnerabilities by severity
+echo "Critical:" $(cat ~/security-reports/nginx-scan.json | jq '[.matches[] | select(.vulnerability.severity == "Critical")] | length')
+echo "High:" $(cat ~/security-reports/nginx-scan.json | jq '[.matches[] | select(.vulnerability.severity == "High")] | length')
+Task 3: Docker Security Configuration Assessment
+Step 3.1: Run Docker Bench Security
+# Navigate to Docker Bench directory
+cd ~/docker-bench-security
+
+# Run full security assessment
+sudo ./docker-bench-security.sh
+
+# Generate log file
+sudo ./docker-bench-security.sh -l ~/security-reports/docker-bench.log
+
+# Return to home directory
+cd ~
+Step 3.2: Analyze Docker Bench Results
+# View results
+cat ~/security-reports/docker-bench.log
+
+# Count findings by type
+echo "WARN findings: $(grep -c 'WARN' ~/security-reports/docker-bench.log)"
+echo "PASS findings: $(grep -c 'PASS' ~/security-reports/docker-bench.log)"
+echo "INFO findings: $(grep -c 'INFO' ~/security-reports/docker-bench.log)"
+
+# View specific warnings
+grep "WARN" ~/security-reports/docker-bench.log | head -10
+Step 3.3: Implement Security Configurations
+# Create secure Docker daemon configuration
+sudo mkdir -p /etc/docker
+
+sudo tee /etc/docker/daemon.json > /dev/null <<EOF
+{
+  "icc": false,
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  },
+  "live-restore": true,
+  "no-new-privileges": true
+}
+EOF
+
+# Restart Docker to apply changes
+sudo systemctl restart docker
+
+# Verify configuration
+docker info | grep -i "security\|logging"
+Task 4: Automate Vulnerability Scanning
+Step 4.1: Create Python Scanner Script
+Create ~/vulnerability_scanner.py:
+
+#!/usr/bin/env python3
+
+import subprocess
+import json
+import sys
+import datetime
+import os
+
+class DockerSecurityScanner:
+    def __init__(self):
+        self.report_dir = os.path.expanduser("~/security-reports")
+        # TODO: Create report directory if it doesn't exist
+    
+    def get_docker_images(self):
+        """
+        Get list of local Docker images.
+        
+        Returns:
+            List of image names in format 'repository:tag'
+        """
+        # TODO: Run 'docker images' command and parse output
+        # TODO: Filter out <none> images
+        # TODO: Return list of image names
+        pass
+    
+    def scan_image_with_grype(self, image_name):
+        """
+        Scan a Docker image with Grype.
+        
+        Args:
+            image_name: Name of the Docker image to scan
+        
+        Returns:
+            Dictionary containing scan results with vulnerability counts
+        """
+        print(f"Scanning {image_name}...")
+        
+        # TODO: Run grype command with JSON output
+        # TODO: Parse JSON response
+        # TODO: Count vulnerabilities by severity (Critical, High, Medium, Low)
+        # TODO: Return summary dictionary with counts
+        pass
+    
+    def generate_security_report(self, scan_results):
+        """
+        Generate comprehensive security report.
+        
+        Args:
+            scan_results: List of scan result dictionaries
+        
+        Returns:
+            Path to generated report file
+        """
+        # TODO: Create report structure with timestamp
+        # TODO: Calculate total vulnerabilities across all images
+        # TODO: Write JSON report to file
+        # TODO: Return report file path
+        pass
+    
+    def print_summary(self, scan_results):
+        """
+        Print scan summary to console.
+        
+        Args:
+            scan_results: List of scan result dictionaries
+        """
+        # TODO: Print formatted summary table
+        # TODO: Show total vulnerabilities by severity
+        # TODO: Display per-image results
+        pass
+    
+    def scan_all_images(self):
+        """Scan all local Docker images and generate report."""
+        # TODO: Get list of images
+        # TODO: Scan each image
+        # TODO: Generate comprehensive report
+        # TODO: Print summary
+        pass
+
+def main():
+    scanner = DockerSecurityScanner()
+    
+    if len(sys.argv) > 1:
+        # Scan specific image
+        image_name = sys.argv[1]
+        # TODO: Scan single image and display results
+    else:
+        # Scan all images
+        scanner.scan_all_images()
+
+if __name__ == "__main__":
+    main()
+Make executable:
+
+chmod +x ~/vulnerability_scanner.py
+Step 4.2: Create Report Generator Script
+Create ~/generate_security_report.py:
+
+#!/usr/bin/env python3
+
+import json
+import os
+import datetime
+from pathlib import Path
+
+class SecurityReportGenerator:
+    def __init__(self, report_dir="~/security-reports"):
+        self.report_dir = Path(report_dir).expanduser()
+        # TODO: Ensure report directory exists
+    
+    def load_latest_scan_data(self):
+        """
+        Load the most recent security scan data.
+        
+        Returns:
+            Dictionary containing scan data or None if not found
+        """
+        # TODO: Find all security_report_*.json files
+        # TODO: Get the most recent file by creation time
+        # TODO: Load and return JSON data
+        pass
+    
+    def generate_html_report(self, scan_data):
+        """
+        Generate HTML security report.
+        
+        Args:
+            scan_data: Dictionary containing scan results
+        
+        Returns:
+            Path to generated HTML file
+        """
+        # TODO: Create HTML template with scan data
+        # TODO: Include vulnerability summary table
+        # TODO: Add per-image results
+        # TODO: Include recommendations section
+        # TODO: Write to file and return path
+        pass
+    
+    def generate_csv_report(self, scan_data):
+        """
+        Generate CSV report for spreadsheet analysis.
+        
+        Args:
+            scan_data: Dictionary containing scan results
+        
+        Returns:
+            Path to generated CSV file
+        """
+        # TODO: Create CSV header
+        # TODO: Add row for each scanned image
+        # TODO: Write to file and return path
+        pass
+
+def main():
+    generator = SecurityReportGenerator()
+    # TODO: Load latest scan data
+    # TODO: Generate HTML and CSV reports
+    # TODO: Display success messages
+
+if __name__ == "__main__":
+    main()
+Make executable:
+
+chmod +x ~/generate_security_report.py
+Step 4.3: Test Automation Scripts
+# Run scanner on all images
+python3 ~/vulnerability_scanner.py
+
+# Scan specific image
+python3 ~/vulnerability_scanner.py nginx:latest
+
+# Generate formatted reports
+python3 ~/generate_security_report.py
+
+# View generated files
+ls -lh ~/security-reports/
+Task 5: Implement Security Best Practices
+Step 5.1: Create Secure Dockerfile
+Create ~/Dockerfile.secure:
+
+# Use specific version, not 'latest'
+FROM alpine:3.16
+
+# Create non-root user
+RUN addgroup -g 1001 appgroup && \
+    adduser -D -u 1001 -G appgroup appuser
+
+# Install minimal dependencies
+RUN apk add --no-cache python3 py3-pip && \
+    rm -rf /var/cache/apk/*
+
+# Set working directory
+WORKDIR /app
+
+# Copy application files with correct ownership
+COPY --chown=appuser:appgroup app.py requirements.txt ./
+
+# Install dependencies
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+# Switch to non-root user
+USER appuser
+
+# Expose specific port
+EXPOSE 8080
+
+# Use exec form for CMD
+CMD ["python3", "app.py"]
+Create sample application ~/app.py:
+
+#!/usr/bin/env python3
+import http.server
+import socketserver
+
+PORT = 8080
+
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html')
+        self.end_headers()
+        self.wfile.write(b'<h1>Secure Docker App</h1>')
+
+with socketserver.TCPServer(("", PORT), Handler) as httpd:
+    print(f"Server on port {PORT}")
+    httpd.serve_forever()
+Create ~/requirements.txt:
+
+# Minimal dependencies
+Build and scan:
+
+# Build secure image
+docker build -t secure-app:latest -f ~/Dockerfile.secure ~/
+
+# Scan the secure image
+grype secure-app:latest
+
+# Compare with insecure base
+grype python:latest
+Step 5.2: Create Security Pipeline Script
+Create ~/security_pipeline.sh:
+
+#!/bin/bash
+
+set -e
+
+REPORT_DIR="$HOME/security-reports"
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+LOG_FILE="$REPORT_DIR/pipeline_${TIMESTAMP}.log"
+
+mkdir -p "$REPORT_DIR"
+
+echo "Starting Docker Security Pipeline" | tee -a "$LOG_FILE"
+
+# Update Grype database
+echo "Updating vulnerability database..." | tee -a "$LOG_FILE"
+grype db update >> "$LOG_FILE" 2>&1
+
+# Get Docker images
+IMAGES=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep -v "<none>")
+IMAGE_COUNT=$(echo "$IMAGES" | wc -l)
+
+echo "Found $IMAGE_COUNT images to scan" | tee -a "$LOG_FILE"
+
+# Scan each image
+CRITICAL_COUNT=0
+HIGH_COUNT=0
+
+while IFS= read -r image; do
+    echo "Scanning $image..." | tee -a "$LOG_FILE"
+    
+    TEMP_FILE="/tmp/scan_$$.json"
+    grype "$image" -o json > "$TEMP_FILE" 2>/dev/null || true
+    
+    CRITICAL=$(jq '[.matches[] | select(.vulnerability.severity == "Critical")] | length' "$TEMP_FILE" 2>/dev/null || echo 0)
+    HIGH=$(jq '[.matches[] | select(.vulnerability.severity == "High")] | length' "$TEMP_FILE" 2>/dev/null || echo 0)
+    
+    CRITICAL_COUNT=$((CRITICAL_COUNT + CRITICAL))
+    HIGH_COUNT=$((HIGH_COUNT + HIGH))
+    
+    echo "$image: Critical=$CRITICAL, High=$HIGH" | tee -a "$LOG_FILE"
+    
+    rm -f "$TEMP_FILE"
+done <<< "$IMAGES"
+
+# Run Docker Bench
+if [ -f "$HOME/docker-bench-security/docker-bench-security.sh" ]; then
+    echo "Running Docker Bench Security..." | tee -a "$LOG_FILE"
+    sudo "$HOME/docker-bench-security/docker-bench-security.sh" -l "$REPORT_DIR/bench_${TIMESTAMP}.log" >> "$LOG_FILE" 2>&1
+fi
+
+# Generate summary
+echo "========================================" | tee -a "$LOG_FILE"
+echo "SECURITY PIPELINE SUMMARY" | tee -a "$LOG_FILE"
+echo "Images Scanned: $IMAGE_COUNT" | tee -a "$LOG_FILE"
+echo "Critical Vulnerabilities: $CRITICAL_COUNT" | tee -a "$LOG_FILE"
+echo "High Vulnerabilities: $HIGH_COUNT" | tee -a "$LOG_FILE"
+echo "========================================" | tee -a "$LOG_FILE"
+
+# Exit with error if critical vulnerabilities found
+if [ "$CRITICAL_COUNT" -gt 0 ]; then
+    echo "ERROR: Critical vulnerabilities detected!" | tee -a "$LOG_FILE"
+    exit 1
+fi
+
+echo "Security pipeline completed successfully" | tee -a "$LOG_FILE"
+Make executable and run:
+
+chmod +x ~/security_pipeline.sh
+~/security_pipeline.sh
+Step 5.3: Security Best Practices Checklist
+Key security practices to implement:
+
+Use specific image versions instead of latest tag
+Run containers as non-root users whenever possible
+Minimize installed packages to reduce attack surface
+Use multi-stage builds to exclude build tools from final image
+Scan images regularly in CI/CD pipeline
+Keep base images updated with security patches
+Use minimal base images like Alpine or Distroless
+Set resource limits to prevent DoS attacks
+Enable Docker Content Trust for image signing
+Implement network segmentation with custom networks
+Expected Outcomes
+After completing this lab, you should have:
+
+Grype and Docker Bench Security installed and configured
+Multiple vulnerability scan reports in various formats
+Understanding of vulnerability severity levels and prioritization
+Automated Python scripts for continuous security scanning
+Secure Dockerfile examples following best practices
+Comprehensive security pipeline for regular assessments
+Knowledge of Docker security hardening techniques
+Troubleshooting Tips
+Issue: Grype database update fails
+
+Check internet connectivity
+Verify disk space availability
+Try manual update: grype db update --verbose
+Issue: Docker Bench requires sudo
+
+Docker Bench needs root access for system checks
+Run with: sudo ./docker-bench-security.sh
+Review permissions on Docker socket
+Issue: Python scripts fail with import errors
+
+Install required packages: pip3 install --user <package>
+Verify Python 3 is default: python3 --version
+Check script has execute permissions
+Issue: High vulnerability counts on older images
+
+This is expected for outdated base images
+Update to latest stable versions
+Consider switching to Alpine-based images
+Issue: Docker daemon configuration not applied
+
+Verify JSON syntax in /etc/docker/daemon.json
+Restart Docker: sudo systemctl restart docker
+Check logs: sudo journalctl -u docker
+Conclusion
+This lab provided hands-on experience with Docker security scanning and hardening. You learned to use Grype for vulnerability detection, Docker Bench for configuration assessment, and Python for automation. These skills are essential for maintaining secure containerized environments in production.
+
+Key takeaways:
+
+Regular vulnerability scanning prevents security incidents
+Automated security pipelines enable continuous monitoring
+Following best practices significantly reduces attack surface
+Security is an ongoing process, not a one-time task
+Continue practicing by integrating these tools into your development workflow and CI/CD pipelines. Regular security assessments should be part of every container deployment strategy.
