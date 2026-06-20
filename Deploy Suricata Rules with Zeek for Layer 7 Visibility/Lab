@@ -1,0 +1,526 @@
+Deploy Suricata Rules with Zeek for Layer 7 Visibility
+Objectives
+By the end of this lab, students will be able to:
+
+Install and configure Suricata IDS for signature-based detection
+Deploy Zeek network security monitor for behavioral analysis
+Create custom Layer 7 detection rules for application protocols
+Integrate both tools for comprehensive network visibility
+Develop Python automation scripts for log analysis and monitoring
+Prerequisites
+Basic Linux command line proficiency
+Understanding of TCP/IP and common protocols (HTTP, DNS, TLS)
+Familiarity with network security concepts
+Basic Python programming skills
+Lab Environment
+Al Nafi Cloud Machine: Click Start Lab to access your pre-configured Ubuntu 22.04 environment. All tasks run on this single cloud instance.
+
+Task 1: Install and Configure Suricata
+Step 1.1: Install Suricata IDS
+# Update system and install Suricata
+sudo apt update
+sudo add-apt-repository ppa:oisf/suricata-stable -y
+sudo apt install -y suricata
+
+# Verify installation
+suricata --version
+Step 1.2: Configure Network Interface
+Edit the Suricata configuration file:
+
+sudo nano /etc/suricata/suricata.yaml
+Modify these key sections:
+
+# Set your network interface
+af-packet:
+  - interface: eth0
+    cluster-id: 99
+    cluster-type: cluster_flow
+
+# Define your network
+vars:
+  address-groups:
+    HOME_NET: "[192.168.0.0/16,10.0.0.0/8,172.16.0.0/12]"
+    EXTERNAL_NET: "!$HOME_NET"
+Step 1.3: Download Rule Sets
+# Install and run suricata-update
+sudo apt install -y python3-pip
+sudo pip3 install suricata-update
+sudo suricata-update
+
+# Verify rules
+sudo ls -la /var/lib/suricata/rules/
+Step 1.4: Create Custom Layer 7 Rules
+Create custom detection rules:
+
+sudo mkdir -p /etc/suricata/rules/custom
+sudo nano /etc/suricata/rules/custom/layer7-detection.rules
+Add these Layer 7 rules:
+
+# HTTP Detection
+alert http any any -> $HOME_NET any (msg:"HTTP POST Request"; http.method; content:"POST"; sid:1000001; rev:1;)
+alert http any any -> $HOME_NET any (msg:"Suspicious User-Agent"; http.user_agent; content:"curl"; sid:1000002; rev:1;)
+alert http any any -> $HOME_NET any (msg:"Executable Download"; http.uri; content:".exe"; sid:1000003; rev:1;)
+
+# DNS Detection
+alert dns any any -> any any (msg:"Suspicious DNS Query"; dns.query; content:"malware"; nocase; sid:1000004; rev:1;)
+alert dns any any -> any any (msg:"DNS TXT Query"; dns.rrtype; content:"TXT"; sid:1000005; rev:1;)
+
+# TLS Detection
+alert tls any any -> any any (msg:"Outdated TLS Version"; tls.version; content:"1.0"; sid:1000006; rev:1;)
+alert tls any any -> any any (msg:"Self-Signed Certificate"; tls.cert_subject; content:"CN=localhost"; sid:1000007; rev:1;)
+
+# FTP Detection
+alert ftp any any -> any any (msg:"FTP Login Attempt"; ftp.command; content:"USER"; sid:1000008; rev:1;)
+Update configuration to include custom rules:
+
+sudo nano /etc/suricata/suricata.yaml
+Add to rule-files section:
+
+rule-files:
+  - suricata.rules
+  - /etc/suricata/rules/custom/layer7-detection.rules
+Task 2: Install and Configure Zeek
+Step 2.1: Install Zeek
+# Install dependencies
+sudo apt install -y cmake make gcc g++ flex bison libpcap-dev libssl-dev python3-dev swig zlib1g-dev
+
+# Download and install Zeek
+cd /tmp
+wget https://download.zeek.org/zeek-5.0.0.tar.gz
+tar -xzf zeek-5.0.0.tar.gz
+cd zeek-5.0.0
+
+# Compile and install
+./configure --prefix=/opt/zeek
+make -j$(nproc)
+sudo make install
+
+# Add to PATH
+echo 'export PATH=/opt/zeek/bin:$PATH' >> ~/.bashrc
+source ~/.bashrc
+Step 2.2: Configure Zeek
+Configure network interface:
+
+sudo nano /opt/zeek/etc/node.cfg
+Set interface:
+
+[zeek]
+type=standalone
+host=localhost
+interface=eth0
+Configure networks:
+
+sudo nano /opt/zeek/etc/networks.cfg
+10.0.0.0/8          Private IP space
+172.16.0.0/12       Private IP space
+192.168.0.0/16      Private IP space
+Step 2.3: Create Custom Zeek Scripts
+Create HTTP analysis script:
+
+sudo mkdir -p /opt/zeek/share/zeek/site/custom
+sudo nano /opt/zeek/share/zeek/site/custom/http-layer7.zeek
+Add starter template:
+
+@load base/protocols/http
+
+module HTTPLayer7;
+
+export {
+    redef enum Log::ID += { LOG };
+    
+    type Info: record {
+        ts: time &log;
+        uid: string &log;
+        method: string &log &optional;
+        host: string &log &optional;
+        uri: string &log &optional;
+        user_agent: string &log &optional;
+    };
+}
+
+event zeek_init() {
+    # TODO: Create log stream
+}
+
+event http_request(c: connection, method: string, original_URI: string, 
+                   unescaped_URI: string, version: string) {
+    # TODO: Log HTTP request details
+    # TODO: Check for suspicious patterns
+}
+Create DNS analysis script:
+
+sudo nano /opt/zeek/share/zeek/site/custom/dns-layer7.zeek
+@load base/protocols/dns
+
+module DNSLayer7;
+
+export {
+    redef enum Log::ID += { LOG };
+    
+    type Info: record {
+        ts: time &log;
+        query: string &log &optional;
+        qtype: count &log &optional;
+    };
+}
+
+event zeek_init() {
+    # TODO: Initialize logging
+}
+
+event dns_request(c: connection, msg: dns_msg, query: string, qtype: count, qclass: count) {
+    # TODO: Log DNS queries
+    # TODO: Detect suspicious domains
+}
+Load custom scripts:
+
+sudo nano /opt/zeek/share/zeek/site/local.zeek
+@load ./custom/http-layer7
+@load ./custom/dns-layer7
+
+# Enable protocol detection
+@load policy/protocols/http/detect-sqli
+@load policy/protocols/dns/detect-external-names
+Task 3: Create Integration and Analysis Scripts
+Step 3.1: Network Monitor Integration Script
+Create the main monitoring script:
+
+mkdir -p ~/network-monitoring
+cd ~/network-monitoring
+nano network_monitor.py
+Add starter template:
+
+#!/usr/bin/env python3
+"""
+Network Monitoring Integration
+Manages Suricata and Zeek for Layer 7 visibility
+"""
+
+import subprocess
+import time
+import os
+from datetime import datetime
+
+class NetworkMonitor:
+    def __init__(self):
+        self.log_dir = "/var/log/network-monitor"
+        self.setup_logging()
+    
+    def setup_logging(self):
+        """Create log directories"""
+        # TODO: Create directory structure
+        pass
+    
+    def start_suricata(self, interface="eth0"):
+        """
+        Start Suricata IDS
+        
+        Args:
+            interface: Network interface to monitor
+        
+        Returns:
+            bool: True if started successfully
+        """
+        # TODO: Build suricata command
+        # TODO: Start process in daemon mode
+        # TODO: Verify startup
+        pass
+    
+    def start_zeek(self, interface="eth0"):
+        """
+        Start Zeek monitor
+        
+        Args:
+            interface: Network interface to monitor
+        
+        Returns:
+            bool: True if started successfully
+        """
+        # TODO: Build zeek command
+        # TODO: Start process
+        # TODO: Verify startup
+        pass
+    
+    def monitor_alerts(self):
+        """Monitor and display alerts from both tools"""
+        # TODO: Read Suricata fast.log
+        # TODO: Read Zeek notice.log
+        # TODO: Display recent alerts
+        pass
+    
+    def stop_monitoring(self):
+        """Stop all monitoring processes"""
+        # TODO: Stop Suricata
+        # TODO: Stop Zeek
+        # TODO: Clean up
+        pass
+
+def main():
+    monitor = NetworkMonitor()
+    # TODO: Start monitoring
+    # TODO: Handle keyboard interrupt
+    pass
+
+if __name__ == "__main__":
+    main()
+Make executable:
+
+chmod +x network_monitor.py
+Step 3.2: Log Analysis Script
+Create log analyzer:
+
+nano log_analyzer.py
+Add starter template:
+
+#!/usr/bin/env python3
+"""
+Network Log Analyzer
+Analyzes Suricata and Zeek logs for Layer 7 insights
+"""
+
+import json
+import os
+from collections import Counter
+import argparse
+
+class LogAnalyzer:
+    def __init__(self, log_dir="/var/log/network-monitor"):
+        self.log_dir = log_dir
+    
+    def analyze_suricata_alerts(self):
+        """
+        Analyze Suricata alert logs
+        
+        Returns:
+            dict: Analysis results with alert counts and types
+        """
+        # TODO: Read fast.log
+        # TODO: Parse alert patterns
+        # TODO: Count by protocol and severity
+        # TODO: Return statistics
+        pass
+    
+    def analyze_http_traffic(self):
+        """
+        Analyze HTTP traffic from Zeek logs
+        
+        Returns:
+            dict: HTTP statistics (methods, hosts, user agents)
+        """
+        # TODO: Read http.log or custom HTTP log
+        # TODO: Extract methods, hosts, URIs
+        # TODO: Count top values
+        # TODO: Identify suspicious patterns
+        pass
+    
+    def analyze_dns_queries(self):
+        """
+        Analyze DNS queries from Zeek logs
+        
+        Returns:
+            dict: DNS statistics (queries, types, suspicious domains)
+        """
+        # TODO: Read dns.log
+        # TODO: Parse query names and types
+        # TODO: Detect anomalies
+        # TODO: Return analysis
+        pass
+    
+    def analyze_tls_connections(self):
+        """
+        Analyze TLS/SSL connections
+        
+        Returns:
+            dict: TLS statistics (versions, ciphers, certificates)
+        """
+        # TODO: Read ssl.log
+        # TODO: Extract TLS versions and ciphers
+        # TODO: Check for weak configurations
+        # TODO: Return findings
+        pass
+    
+    def generate_report(self):
+        """Generate comprehensive analysis report"""
+        # TODO: Call all analysis functions
+        # TODO: Format results
+        # TODO: Print or save report
+        pass
+
+def main():
+    parser = argparse.ArgumentParser(description='Analyze network logs')
+    parser.add_argument('--log-dir', default='/var/log/network-monitor',
+                       help='Log directory path')
+    args = parser.parse_args()
+    
+    analyzer = LogAnalyzer(args.log_dir)
+    # TODO: Run analysis
+    # TODO: Display results
+    pass
+
+if __name__ == "__main__":
+    main()
+Make executable:
+
+chmod +x log_analyzer.py
+Step 3.3: Rule Update Automation
+Create rule update script:
+
+nano update_rules.py
+#!/usr/bin/env python3
+"""
+Automated Rule Update Script
+Updates Suricata rules and reloads configuration
+"""
+
+import subprocess
+import logging
+from datetime import datetime
+
+class RuleUpdater:
+    def __init__(self):
+        self.setup_logging()
+    
+    def setup_logging(self):
+        """Configure logging"""
+        # TODO: Setup logging configuration
+        pass
+    
+    def update_suricata_rules(self):
+        """
+        Update Suricata rule sets
+        
+        Returns:
+            bool: True if update successful
+        """
+        # TODO: Run suricata-update
+        # TODO: Check for errors
+        # TODO: Log results
+        pass
+    
+    def reload_suricata(self):
+        """
+        Reload Suricata with new rules
+        
+        Returns:
+            bool: True if reload successful
+        """
+        # TODO: Send reload signal to Suricata
+        # TODO: Verify reload
+        pass
+    
+    def backup_rules(self):
+        """Backup current rules before update"""
+        # TODO: Create backup directory
+        # TODO: Copy current rules
+        pass
+    
+    def run_update(self):
+        """Execute complete update process"""
+        # TODO: Backup current rules
+        # TODO: Update rules
+        # TODO: Reload Suricata
+        # TODO: Verify operation
+        pass
+
+def main():
+    updater = RuleUpdater()
+    # TODO: Run update process
+    pass
+
+if __name__ == "__main__":
+    main()
+Task 4: Test and Validate Configuration
+Step 4.1: Start Monitoring System
+Test Suricata:
+
+# Test configuration
+sudo suricata -T -c /etc/suricata/suricata.yaml
+
+# Start Suricata
+sudo suricata -c /etc/suricata/suricata.yaml -i eth0 -D
+Test Zeek:
+
+# Deploy Zeek
+sudo /opt/zeek/bin/zeekctl deploy
+
+# Check status
+sudo /opt/zeek/bin/zeekctl status
+Step 4.2: Generate Test Traffic
+Create test traffic to trigger alerts:
+
+# HTTP test
+curl http://testmyids.com
+
+# DNS test
+nslookup malware-test.example.com
+
+# Download test (triggers .exe rule)
+wget http://example.com/test.exe
+Step 4.3: Verify Detection
+Check Suricata alerts:
+
+# View recent alerts
+sudo tail -f /var/log/suricata/fast.log
+
+# Check EVE JSON log
+sudo tail -f /var/log/suricata/eve.json | jq .
+Check Zeek logs:
+
+# View HTTP logs
+cat /opt/zeek/logs/current/http.log
+
+# View DNS logs
+cat /opt/zeek/logs/current/dns.log
+
+# View connection summary
+cat /opt/zeek/logs/current/conn.log
+Step 4.4: Run Analysis Scripts
+Execute your completed scripts:
+
+# Start integrated monitoring
+sudo python3 network_monitor.py
+
+# In another terminal, run analysis
+python3 log_analyzer.py --log-dir /var/log/network-monitor
+Expected Outcomes
+After completing this lab, you should have:
+
+Functional Suricata IDS with custom Layer 7 rules
+Operational Zeek deployment with custom analysis scripts
+Python automation tools for monitoring and analysis
+Understanding of signature vs. behavioral detection
+Ability to correlate alerts from multiple sources
+Experience with application-layer protocol analysis
+Troubleshooting Tips
+Suricata won't start:
+
+Check interface name matches your system: ip addr show
+Verify configuration syntax: sudo suricata -T -c /etc/suricata/suricata.yaml
+Check permissions on log directory: sudo chmod 755 /var/log/suricata
+Zeek compilation fails:
+
+Ensure all dependencies installed: sudo apt install -y cmake make gcc g++ flex bison libpcap-dev
+Check available disk space: df -h
+Review compilation logs for specific errors
+No alerts generated:
+
+Verify rules are loaded: sudo suricata --dump-config | grep rule-files
+Check network traffic is flowing: sudo tcpdump -i eth0 -c 10
+Ensure HOME_NET matches your network range
+Generate test traffic using provided commands
+Python scripts fail:
+
+Verify Python 3 installed: python3 --version
+Check file permissions: chmod +x *.py
+Run with sudo if accessing system logs: sudo python3 script.py
+Conclusion
+This lab demonstrated deploying complementary network security monitoring tools for comprehensive Layer 7 visibility. Suricata provides signature-based detection for known threats, while Zeek offers behavioral analysis and detailed protocol logging. Together, they create a powerful monitoring solution.
+
+Key takeaways:
+
+Layer 7 detection requires application protocol awareness
+Signature-based and behavioral detection are complementary
+Automation scripts enhance operational efficiency
+Log correlation provides deeper security insights
+Custom rules enable organization-specific detection
+Continue practicing by creating additional custom rules, expanding Python automation, and analyzing different protocol behaviors in your network environment.
