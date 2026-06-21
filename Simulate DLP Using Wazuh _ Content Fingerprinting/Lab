@@ -1,0 +1,478 @@
+Simulate DLP Using Wazuh & Content Fingerprinting
+Objectives
+By the end of this lab, students will be able to:
+
+Install and configure Wazuh for Data Loss Prevention monitoring
+Implement content fingerprinting to identify sensitive data patterns
+Create custom Wazuh rules for detecting data exposure
+Develop Python scripts for automated DLP alert processing
+Monitor file systems for potential data breaches
+Prerequisites
+Before starting this lab, students should have:
+
+Basic Linux command line proficiency
+Understanding of regular expressions
+Python programming fundamentals
+Knowledge of data security principles
+Lab Environment
+Al Nafi provides ready-to-use Linux-based cloud machines for this lab. Click Start Lab to access your pre-configured environment with:
+
+Ubuntu 20.04 LTS or later
+Root access privileges
+Internet connectivity
+Pre-installed development tools
+Task 1: Install and Configure Wazuh
+Step 1.1: Install Wazuh Manager and Agent
+# Update system packages
+sudo apt update && sudo apt upgrade -y
+
+# Install dependencies
+sudo apt install curl apt-transport-https lsb-release gnupg2 -y
+
+# Add Wazuh repository
+curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | sudo apt-key add -
+echo "deb https://packages.wazuh.com/4.x/apt/ stable main" | sudo tee /etc/apt/sources.list.d/wazuh.list
+
+# Install Wazuh manager and agent
+sudo apt update
+sudo apt install wazuh-manager wazuh-agent -y
+
+# Configure agent to connect to local manager
+sudo sed -i 's/<server>.*<\/server>/<server>127.0.0.1<\/server>/' /var/ossec/etc/ossec.conf
+
+# Start services
+sudo systemctl start wazuh-manager wazuh-agent
+sudo systemctl enable wazuh-manager wazuh-agent
+
+# Verify status
+sudo systemctl status wazuh-manager
+Step 1.2: Create Test Data Structure
+# Create directory structure
+sudo mkdir -p /opt/sensitive_data/{hr,finance,legal}
+sudo mkdir -p /opt/public_data
+sudo mkdir -p /opt/dlp_monitoring/{scripts,fingerprints,logs,alerts}
+
+# Create sample sensitive files
+sudo tee /opt/sensitive_data/hr/employees.txt > /dev/null << 'EOF'
+Employee ID: 12345
+Name: John Doe
+SSN: 123-45-6789
+Phone: (555) 123-4567
+Email: john.doe@company.com
+Salary: $75,000
+EOF
+
+sudo tee /opt/sensitive_data/finance/payments.txt > /dev/null << 'EOF'
+Customer: Jane Smith
+Credit Card: 4532-1234-5678-9012
+Expiry: 12/25
+CVV: 123
+Amount: $10,000
+EOF
+
+# Set permissions
+sudo chmod 755 /opt/sensitive_data
+sudo chmod -R 644 /opt/sensitive_data/*
+Task 2: Implement Content Fingerprinting
+Step 2.1: Create Content Fingerprinting Script
+Create /opt/dlp_monitoring/scripts/content_fingerprint.py:
+
+#!/usr/bin/env python3
+
+import hashlib
+import re
+import os
+import json
+import sys
+from datetime import datetime
+
+class ContentFingerprinter:
+    def __init__(self):
+        self.patterns = {
+            'ssn': r'\b\d{3}-\d{2}-\d{4}\b',
+            'credit_card': r'\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b',
+            'phone': r'\b\(\d{3}\)\s?\d{3}-\d{4}\b',
+            'email': r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+        }
+        self.fingerprint_db = '/opt/dlp_monitoring/fingerprints/content_fingerprints.json'
+        self.load_fingerprints()
+    
+    def load_fingerprints(self):
+        """Load existing fingerprints from database"""
+        # TODO: Implement loading fingerprints from JSON file
+        # TODO: Handle file not found exception
+        # TODO: Initialize empty dict if file doesn't exist
+        pass
+    
+    def save_fingerprints(self):
+        """Save fingerprints to database"""
+        # TODO: Write self.fingerprints to JSON file
+        # TODO: Use proper error handling
+        pass
+    
+    def generate_content_hash(self, content):
+        """Generate SHA-256 hash of content"""
+        # TODO: Create SHA-256 hash of content string
+        # TODO: Return hexadecimal digest
+        pass
+    
+    def extract_sensitive_patterns(self, content):
+        """Extract sensitive data patterns from content"""
+        # TODO: Iterate through self.patterns
+        # TODO: Use re.findall() to find matches
+        # TODO: Return dictionary of pattern_name: [matches]
+        pass
+    
+    def fingerprint_file(self, filepath):
+        """Generate fingerprint for a file"""
+        # TODO: Read file content
+        # TODO: Generate content hash
+        # TODO: Extract sensitive patterns
+        # TODO: Create fingerprint dictionary with:
+        #       - filepath, content_hash, sensitive_patterns, timestamp, file_size
+        # TODO: Store in self.fingerprints
+        # TODO: Return fingerprint
+        pass
+    
+    def scan_directory(self, directory):
+        """Scan directory for sensitive files"""
+        # TODO: Walk through directory tree
+        # TODO: Fingerprint each file
+        # TODO: Collect files with sensitive patterns
+        # TODO: Return list of fingerprinted files
+        pass
+    
+    def check_content_similarity(self, content, threshold=0.8):
+        """Check if content matches existing fingerprints"""
+        # TODO: Generate hash for new content
+        # TODO: Check for exact hash matches
+        # TODO: Calculate pattern similarity scores
+        # TODO: Return match info if similarity >= threshold
+        pass
+
+def main():
+    # TODO: Parse command line arguments
+    # TODO: Create ContentFingerprinter instance
+    # TODO: Scan specified directory
+    # TODO: Display results
+    # TODO: Save fingerprints
+    pass
+
+if __name__ == "__main__":
+    main()
+Make the script executable:
+
+sudo chmod +x /opt/dlp_monitoring/scripts/content_fingerprint.py
+Step 2.2: Create File Monitoring Script
+Create /opt/dlp_monitoring/scripts/file_monitor.py:
+
+#!/usr/bin/env python3
+
+import os
+import time
+import json
+import hashlib
+from datetime import datetime
+from content_fingerprint import ContentFingerprinter
+
+class FileMonitor:
+    def __init__(self, watch_directories, alert_directory):
+        self.watch_directories = watch_directories
+        self.alert_directory = alert_directory
+        self.fingerprinter = ContentFingerprinter()
+        self.monitored_files = {}
+        self.alert_log = '/opt/dlp_monitoring/logs/dlp_alerts.log'
+        
+        os.makedirs(alert_directory, exist_ok=True)
+        os.makedirs(os.path.dirname(self.alert_log), exist_ok=True)
+    
+    def get_file_hash(self, filepath):
+        """Calculate MD5 hash of file"""
+        # TODO: Read file in binary mode
+        # TODO: Calculate MD5 hash
+        # TODO: Return hexdigest
+        pass
+    
+    def log_alert(self, alert_type, message, filepath=None):
+        """Log DLP alert to file"""
+        # TODO: Create alert entry dictionary with timestamp, alert_type, message, filepath
+        # TODO: Append JSON line to alert log file
+        # TODO: Print alert to console
+        pass
+    
+    def check_file_for_sensitive_data(self, filepath):
+        """Check if file contains sensitive data"""
+        # TODO: Read file content
+        # TODO: Check against existing fingerprints using check_content_similarity()
+        # TODO: Extract sensitive patterns if no match found
+        # TODO: Return match result or None
+        pass
+    
+    def scan_directory_changes(self, directory):
+        """Scan directory for new or modified files"""
+        # TODO: Walk through directory
+        # TODO: Calculate hash for each file
+        # TODO: Compare with self.monitored_files to detect new/modified files
+        # TODO: Check new/modified files for sensitive data
+        # TODO: Return list of alerts
+        pass
+    
+    def monitor_directories(self, interval=10):
+        """Monitor directories continuously"""
+        # TODO: Perform initial scan
+        # TODO: Loop indefinitely with sleep interval
+        # TODO: Scan each watch directory
+        # TODO: Process alerts
+        # TODO: Handle KeyboardInterrupt
+        pass
+    
+    def process_alert(self, alert):
+        """Process and log DLP alert"""
+        # TODO: Extract alert details
+        # TODO: Format appropriate message based on match type
+        # TODO: Log alert using log_alert()
+        # TODO: Create alert JSON file in alert_directory
+        pass
+
+def main():
+    watch_directories = ['/opt/public_data', '/tmp']
+    alert_directory = '/opt/dlp_monitoring/alerts'
+    
+    # TODO: Create FileMonitor instance
+    # TODO: Start monitoring with appropriate interval
+    pass
+
+if __name__ == "__main__":
+    main()
+Make the script executable:
+
+sudo chmod +x /opt/dlp_monitoring/scripts/file_monitor.py
+Task 3: Configure Wazuh DLP Rules
+Step 3.1: Create Custom DLP Rules
+# Create custom DLP rules
+sudo tee /var/ossec/etc/rules/dlp_rules.xml > /dev/null << 'EOF'
+<group name="dlp,">
+  
+  <rule id="100001" level="0">
+    <decoded_as>json</decoded_as>
+    <field name="alert_type">\.+</field>
+    <description>DLP Alert Base Rule</description>
+  </rule>
+  
+  <rule id="100002" level="10">
+    <if_sid>100001</if_sid>
+    <field name="alert_type">NEW_SENSITIVE_FILE</field>
+    <description>DLP: New sensitive file detected</description>
+    <group>dlp,pci_dss_3.4,gdpr_IV_32.2,</group>
+  </rule>
+  
+  <rule id="100003" level="8">
+    <if_sid>100001</if_sid>
+    <field name="alert_type">MODIFIED_SENSITIVE_FILE</field>
+    <description>DLP: Sensitive file modified</description>
+    <group>dlp,pci_dss_3.4,gdpr_IV_32.2,</group>
+  </rule>
+  
+  <rule id="100004" level="12">
+    <if_sid>100001</if_sid>
+    <field name="details.match_type">exact</field>
+    <description>DLP: Exact sensitive data match</description>
+    <group>dlp,pci_dss_3.4,gdpr_IV_32.2,</group>
+  </rule>
+  
+  <rule id="100005" level="11">
+    <if_sid>100001</if_sid>
+    <field name="details.patterns.ssn">\.+</field>
+    <description>DLP: SSN detected</description>
+    <group>dlp,pci_dss_3.4,gdpr_IV_32.2,</group>
+  </rule>
+  
+  <rule id="100006" level="12">
+    <if_sid>100001</if_sid>
+    <field name="details.patterns.credit_card">\.+</field>
+    <description>DLP: Credit card detected</description>
+    <group>dlp,pci_dss_3.4,</group>
+  </rule>
+  
+</group>
+EOF
+
+# Restart Wazuh manager
+sudo systemctl restart wazuh-manager
+Step 3.2: Configure Wazuh to Monitor DLP Logs
+# Backup configuration
+sudo cp /var/ossec/etc/ossec.conf /var/ossec/etc/ossec.conf.backup
+
+# Add DLP monitoring configuration
+sudo tee -a /var/ossec/etc/ossec.conf > /dev/null << 'EOF'
+
+  <!-- DLP Monitoring -->
+  <localfile>
+    <log_format>json</log_format>
+    <location>/opt/dlp_monitoring/logs/dlp_alerts.log</location>
+  </localfile>
+
+EOF
+
+# Restart services
+sudo systemctl restart wazuh-manager wazuh-agent
+Task 4: Automate DLP Alert Processing
+Step 4.1: Create DLP Automation Script
+Create /opt/dlp_monitoring/scripts/dlp_automation.py:
+
+#!/usr/bin/env python3
+
+import json
+import os
+from datetime import datetime
+
+class DLPAutomation:
+    def __init__(self):
+        self.alert_log = '/opt/dlp_monitoring/logs/dlp_alerts.log'
+        self.processed_alerts = '/opt/dlp_monitoring/logs/processed_alerts.json'
+        self.config = {
+            'quarantine_enabled': True,
+            'quarantine_directory': '/opt/dlp_monitoring/quarantine',
+            'alert_thresholds': {
+                'HIGH': 10,
+                'MEDIUM': 5,
+                'LOW': 1
+            }
+        }
+        self.load_processed_alerts()
+    
+    def load_processed_alerts(self):
+        """Load list of already processed alerts"""
+        # TODO: Load processed alert IDs from JSON file
+        # TODO: Store in self.processed as a set
+        pass
+    
+    def save_processed_alerts(self):
+        """Save processed alerts list"""
+        # TODO: Convert self.processed set to list
+        # TODO: Save to JSON file
+        pass
+    
+    def get_alert_severity(self, alert):
+        """Determine alert severity based on patterns"""
+        # TODO: Check for high-severity patterns (ssn, credit_card)
+        # TODO: Check match_type (exact = HIGH, similar = MEDIUM)
+        # TODO: Return 'HIGH', 'MEDIUM', or 'LOW'
+        pass
+    
+    def quarantine_file(self, filepath):
+        """Move sensitive file to quarantine directory"""
+        # TODO: Check if quarantine is enabled
+        # TODO: Create quarantine directory if needed
+        # TODO: Generate timestamped filename
+        # TODO: Move file to quarantine
+        # TODO: Return success/failure
+        pass
+    
+    def create_incident_report(self, alert, severity):
+        """Create incident report for alert"""
+        # TODO: Create reports directory
+        # TODO: Generate unique incident ID
+        # TODO: Create incident report dictionary with:
+        #       - incident_id, severity, alert, timestamp, status
+        # TODO: Save to JSON file
+        pass
+    
+    def process_alert(self, alert):
+        """Process a single DLP alert"""
+        # TODO: Generate unique alert ID
+        # TODO: Check if already processed
+        # TODO: Determine severity
+        # TODO: Quarantine file if HIGH severity
+        # TODO: Create incident report
+        # TODO: Mark as processed
+        pass
+    
+    def read_new_alerts(self):
+        """Read new alerts from log file"""
+        # TODO: Read alert log file line by line
+        # TODO: Parse each JSON line
+        # TODO: Return list of alert dictionaries
+        pass
+    
+    def run(self):
+        """Main automation loop"""
+        # TODO: Read new alerts
+        # TODO: Process each alert
+        # TODO: Save processed alerts list
+        # TODO: Print summary
+        pass
+
+def main():
+    # TODO: Create DLPAutomation instance
+    # TODO: Run automation
+    pass
+
+if __name__ == "__main__":
+    main()
+Make the script executable:
+
+sudo chmod +x /opt/dlp_monitoring/scripts/dlp_automation.py
+Step 4.2: Test the DLP System
+# Run fingerprinting on sensitive data
+cd /opt/dlp_monitoring/scripts
+sudo python3 content_fingerprint.py /opt/sensitive_data
+
+# View generated fingerprints
+sudo cat /opt/dlp_monitoring/fingerprints/content_fingerprints.json | python3 -m json.tool
+
+# Start file monitoring in background
+sudo python3 file_monitor.py &
+MONITOR_PID=$!
+
+# Test by copying sensitive file to monitored directory
+sudo cp /opt/sensitive_data/hr/employees.txt /opt/public_data/
+
+# Wait for detection
+sleep 10
+
+# Check alerts
+sudo cat /opt/dlp_monitoring/logs/dlp_alerts.log
+
+# Run automation script
+sudo python3 dlp_automation.py
+
+# Check Wazuh alerts
+sudo tail -f /var/ossec/logs/alerts/alerts.log
+
+# Stop monitoring
+sudo kill $MONITOR_PID
+Expected Outcomes
+After completing this lab, you should have:
+
+Functional Wazuh installation monitoring DLP events
+Content fingerprinting system identifying sensitive data patterns
+Custom Wazuh rules detecting SSN, credit cards, and other sensitive data
+Automated alert processing with quarantine capabilities
+Working file monitoring system detecting data exposure attempts
+Troubleshooting Tips
+Issue: Wazuh services not starting
+
+Check logs: sudo tail -f /var/ossec/logs/ossec.log
+Verify configuration: sudo /var/ossec/bin/wazuh-control info
+Restart services: sudo systemctl restart wazuh-manager wazuh-agent
+Issue: Python scripts not detecting patterns
+
+Verify regex patterns in content_fingerprint.py
+Check file permissions: ls -la /opt/sensitive_data
+Test patterns manually: grep -E '\b\d{3}-\d{2}-\d{4}\b' /opt/sensitive_data/hr/employees.txt
+Issue: Alerts not appearing in Wazuh
+
+Verify log file location in ossec.conf
+Check rule syntax: sudo /var/ossec/bin/wazuh-logtest
+Ensure JSON format is correct in alert logs
+Conclusion
+This lab demonstrated implementing Data Loss Prevention using Wazuh and content fingerprinting techniques. You learned to identify sensitive data patterns, monitor file systems for data exposure, create custom detection rules, and automate alert processing. These skills are essential for protecting sensitive information and maintaining compliance with data protection regulations like PCI-DSS and GDPR.
+
+Key takeaways:
+
+Content fingerprinting enables proactive sensitive data identification
+Wazuh provides flexible rule-based monitoring for DLP scenarios
+Automation reduces response time to potential data breaches
+Pattern matching with regular expressions is fundamental to DLP systems
+Continue practicing by expanding pattern detection, integrating with SIEM systems, and implementing additional response actions like email notifications or ticket creation.
