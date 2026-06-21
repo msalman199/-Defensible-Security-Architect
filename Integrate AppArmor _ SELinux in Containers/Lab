@@ -1,0 +1,821 @@
+Integrate AppArmor & SELinux in Containers
+Objectives
+By the end of this lab, students will be able to:
+
+Understand the fundamentals of AppArmor and SELinux security frameworks
+Configure AppArmor profiles for containerized applications
+Implement SELinux policies for Docker containers
+Deploy secure Docker containers with integrated security frameworks
+Create and execute Python scripts for automated container security validation
+Troubleshoot common security integration issues in containerized environments
+Prerequisites
+Before starting this lab, students should have:
+
+Basic understanding of Linux command line operations
+Familiarity with Docker containers and basic Docker commands
+Knowledge of file permissions and Linux security concepts
+Basic Python programming skills
+Understanding of system administration concepts
+Ready-to-Use Cloud Machines
+Al Nafi provides Linux-based cloud machines with all necessary tools pre-installed. Simply click Start Lab to access your dedicated Ubuntu 20.04 LTS machine with Docker, AppArmor, and SELinux ready for configuration. No need to build your own virtual machine or install additional software.
+
+Lab Environment Setup
+Initial System Verification
+First, let's verify our system is ready for the lab:
+
+# Check system information
+uname -a
+cat /etc/os-release
+
+# Verify Docker installation
+docker --version
+systemctl status docker
+
+# Check AppArmor status
+sudo aa-status
+
+# Check SELinux installation
+sestatus
+Install Required Packages
+# Update system packages
+sudo apt update
+
+# Install SELinux utilities (if not already installed)
+sudo apt install -y selinux-utils selinux-basics auditd
+
+# Install AppArmor utilities
+sudo apt install -y apparmor-utils apparmor-profiles
+
+# Install Python dependencies
+sudo apt install -y python3-pip
+pip3 install docker selinux
+Task 1: Configure AppArmor and SELinux for Containers
+Subtask 1.1: Understanding Current Security State
+Let's examine the current security configuration:
+
+# Check AppArmor profiles
+sudo aa-status | head -20
+
+# List available AppArmor profiles
+ls /etc/apparmor.d/
+
+# Check SELinux mode
+getenforce
+
+# View SELinux contexts
+ls -Z /var/lib/docker/
+Subtask 1.2: Configure AppArmor for Docker
+Create a custom AppArmor profile for Docker containers:
+
+# Create AppArmor profile directory
+sudo mkdir -p /etc/apparmor.d/containers
+
+# Create custom Docker profile
+sudo tee /etc/apparmor.d/containers/docker-secure > /dev/null << 'EOF'
+#include <tunables/global>
+
+profile docker-secure flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+  
+  # Allow basic system access
+  /bin/** ix,
+  /usr/bin/** ix,
+  /lib/** mr,
+  /usr/lib/** mr,
+  
+  # Allow container filesystem access
+  /var/lib/docker/containers/** rw,
+  /var/lib/docker/overlay2/** rw,
+  
+  # Deny sensitive system access
+  deny /proc/sys/** w,
+  deny /sys/** w,
+  deny /etc/shadow r,
+  deny /etc/passwd w,
+  
+  # Network access
+  network inet tcp,
+  network inet udp,
+  
+  # Capability restrictions
+  capability setuid,
+  capability setgid,
+  capability net_bind_service,
+  deny capability sys_admin,
+  deny capability sys_module,
+}
+EOF
+
+# Load the AppArmor profile
+sudo apparmor_parser -r /etc/apparmor.d/containers/docker-secure
+
+# Verify profile is loaded
+sudo aa-status | grep docker-secure
+Subtask 1.3: Configure SELinux for Containers
+Enable and configure SELinux for container security:
+
+# Enable SELinux (if not already enabled)
+sudo selinux-activate
+
+# Set SELinux to enforcing mode
+sudo setenforce 1
+
+# Create SELinux policy for containers
+sudo tee /tmp/container_security.te > /dev/null << 'EOF'
+module container_security 1.0;
+
+require {
+    type container_t;
+    type docker_t;
+    class process { transition };
+    class file { read write execute };
+}
+
+# Allow container transitions
+allow docker_t container_t:process transition;
+
+# Restrict container file access
+neverallow container_t { etc_t shadow_t }:file { read write };
+EOF
+
+# Compile and install SELinux policy
+sudo checkmodule -M -m -o /tmp/container_security.mod /tmp/container_security.te
+sudo semodule_package -o /tmp/container_security.pp -m /tmp/container_security.mod
+sudo semodule -i /tmp/container_security.pp
+
+# Verify policy installation
+sudo semodule -l | grep container_security
+Task 2: Deploy Secure Docker Containers with Security Integrations
+Subtask 2.1: Create Test Application
+First, let's create a simple web application for testing:
+
+# Create application directory
+mkdir -p ~/secure-container-lab
+cd ~/secure-container-lab
+
+# Create a simple Python web application
+tee app.py > /dev/null << 'EOF'
+#!/usr/bin/env python3
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import json
+import os
+
+class SecureHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            self.wfile.write(b'<h1>Secure Container Application</h1>')
+        elif self.path == '/status':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            status = {
+                'status': 'running',
+                'security': 'enabled',
+                'user': os.getenv('USER', 'unknown')
+            }
+            self.wfile.write(json.dumps(status).encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+if __name__ == '__main__':
+    server = HTTPServer(('0.0.0.0', 8080), SecureHandler)
+    print("Server starting on port 8080...")
+    server.serve_forever()
+EOF
+
+# Create Dockerfile with security considerations
+tee Dockerfile > /dev/null << 'EOF'
+FROM python:3.9-slim
+
+# Create non-root user
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+
+# Set working directory
+WORKDIR /app
+
+# Copy application
+COPY app.py .
+
+# Change ownership to non-root user
+RUN chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
+
+# Expose port
+EXPOSE 8080
+
+# Run application
+CMD ["python3", "app.py"]
+EOF
+Subtask 2.2: Build and Deploy Container with AppArmor
+# Build the Docker image
+docker build -t secure-app:latest .
+
+# Run container with AppArmor profile
+docker run -d \
+  --name secure-app-apparmor \
+  --security-opt apparmor=docker-secure \
+  --read-only \
+  --tmpfs /tmp \
+  --cap-drop ALL \
+  --cap-add NET_BIND_SERVICE \
+  -p 8081:8080 \
+  secure-app:latest
+
+# Verify container is running
+docker ps | grep secure-app-apparmor
+
+# Test the application
+curl http://localhost:8081/
+curl http://localhost:8081/status
+Subtask 2.3: Deploy Container with SELinux
+# Run container with SELinux context
+docker run -d \
+  --name secure-app-selinux \
+  --security-opt label=type:container_t \
+  --read-only \
+  --tmpfs /tmp \
+  --cap-drop ALL \
+  --cap-add NET_BIND_SERVICE \
+  -p 8082:8080 \
+  secure-app:latest
+
+# Verify SELinux context
+docker inspect secure-app-selinux | grep -A 5 SecurityOpt
+
+# Test the application
+curl http://localhost:8082/
+curl http://localhost:8082/status
+Subtask 2.4: Deploy Container with Both Security Frameworks
+# Run container with both AppArmor and SELinux
+docker run -d \
+  --name secure-app-combined \
+  --security-opt apparmor=docker-secure \
+  --security-opt label=type:container_t \
+  --read-only \
+  --tmpfs /tmp \
+  --cap-drop ALL \
+  --cap-add NET_BIND_SERVICE \
+  -p 8083:8080 \
+  secure-app:latest
+
+# Verify both security options
+docker inspect secure-app-combined | grep -A 10 SecurityOpt
+
+# Test the application
+curl http://localhost:8083/
+curl http://localhost:8083/status
+Task 3: Automate Container Security Checks Using Python Scripts
+Subtask 3.1: Create Security Validation Script
+# Create Python security validation script
+tee security_checker.py > /dev/null << 'EOF'
+#!/usr/bin/env python3
+import docker
+import subprocess
+import json
+import sys
+from datetime import datetime
+
+class ContainerSecurityChecker:
+    def __init__(self):
+        self.client = docker.from_env()
+        self.results = {
+            'timestamp': datetime.now().isoformat(),
+            'containers': [],
+            'security_summary': {
+                'total_containers': 0,
+                'secure_containers': 0,
+                'issues_found': 0
+            }
+        }
+    
+    def check_apparmor_profile(self, container):
+        """Check if container has AppArmor profile applied"""
+        try:
+            security_opts = container.attrs.get('HostConfig', {}).get('SecurityOpt', [])
+            for opt in security_opts:
+                if 'apparmor' in opt:
+                    return True, opt
+            return False, "No AppArmor profile found"
+        except Exception as e:
+            return False, f"Error checking AppArmor: {str(e)}"
+    
+    def check_selinux_context(self, container):
+        """Check if container has SELinux context applied"""
+        try:
+            security_opts = container.attrs.get('HostConfig', {}).get('SecurityOpt', [])
+            for opt in security_opts:
+                if 'label' in opt:
+                    return True, opt
+            return False, "No SELinux context found"
+        except Exception as e:
+            return False, f"Error checking SELinux: {str(e)}"
+    
+    def check_capabilities(self, container):
+        """Check container capabilities"""
+        try:
+            host_config = container.attrs.get('HostConfig', {})
+            cap_drop = host_config.get('CapDrop', [])
+            cap_add = host_config.get('CapAdd', [])
+            
+            issues = []
+            if 'ALL' not in cap_drop:
+                issues.append("Not all capabilities dropped")
+            
+            dangerous_caps = ['SYS_ADMIN', 'SYS_MODULE', 'DAC_OVERRIDE']
+            for cap in cap_add:
+                if cap in dangerous_caps:
+                    issues.append(f"Dangerous capability added: {cap}")
+            
+            return len(issues) == 0, issues
+        except Exception as e:
+            return False, [f"Error checking capabilities: {str(e)}"]
+    
+    def check_readonly_filesystem(self, container):
+        """Check if container filesystem is read-only"""
+        try:
+            readonly = container.attrs.get('HostConfig', {}).get('ReadonlyRootfs', False)
+            return readonly, "Read-only filesystem" if readonly else "Writable filesystem"
+        except Exception as e:
+            return False, f"Error checking filesystem: {str(e)}"
+    
+    def check_user_namespace(self, container):
+        """Check if container runs as non-root user"""
+        try:
+            config = container.attrs.get('Config', {})
+            user = config.get('User', '')
+            
+            if user and user != 'root' and user != '0':
+                return True, f"Running as user: {user}"
+            else:
+                return False, "Running as root user"
+        except Exception as e:
+            return False, f"Error checking user: {str(e)}"
+    
+    def analyze_container(self, container):
+        """Perform comprehensive security analysis of a container"""
+        container_info = {
+            'name': container.name,
+            'id': container.id[:12],
+            'image': container.image.tags[0] if container.image.tags else 'unknown',
+            'status': container.status,
+            'security_checks': {},
+            'issues': [],
+            'security_score': 0
+        }
+        
+        # Perform security checks
+        checks = [
+            ('apparmor', self.check_apparmor_profile),
+            ('selinux', self.check_selinux_context),
+            ('capabilities', self.check_capabilities),
+            ('readonly_fs', self.check_readonly_filesystem),
+            ('user_namespace', self.check_user_namespace)
+        ]
+        
+        passed_checks = 0
+        for check_name, check_func in checks:
+            try:
+                passed, details = check_func(container)
+                container_info['security_checks'][check_name] = {
+                    'passed': passed,
+                    'details': details
+                }
+                if passed:
+                    passed_checks += 1
+                else:
+                    if isinstance(details, list):
+                        container_info['issues'].extend(details)
+                    else:
+                        container_info['issues'].append(details)
+            except Exception as e:
+                container_info['issues'].append(f"Error in {check_name} check: {str(e)}")
+        
+        # Calculate security score
+        container_info['security_score'] = (passed_checks / len(checks)) * 100
+        
+        return container_info
+    
+    def run_security_audit(self):
+        """Run security audit on all running containers"""
+        print("Starting Container Security Audit...")
+        print("=" * 50)
+        
+        containers = self.client.containers.list()
+        self.results['security_summary']['total_containers'] = len(containers)
+        
+        for container in containers:
+            print(f"\nAnalyzing container: {container.name}")
+            container_info = self.analyze_container(container)
+            self.results['containers'].append(container_info)
+            
+            # Print summary for this container
+            print(f"  Security Score: {container_info['security_score']:.1f}%")
+            if container_info['issues']:
+                print(f"  Issues Found: {len(container_info['issues'])}")
+                for issue in container_info['issues']:
+                    print(f"    - {issue}")
+            else:
+                print("  No security issues found!")
+                self.results['security_summary']['secure_containers'] += 1
+        
+        # Calculate total issues
+        total_issues = sum(len(c['issues']) for c in self.results['containers'])
+        self.results['security_summary']['issues_found'] = total_issues
+        
+        return self.results
+    
+    def generate_report(self, output_file='security_report.json'):
+        """Generate detailed security report"""
+        with open(output_file, 'w') as f:
+            json.dump(self.results, f, indent=2)
+        
+        print(f"\n" + "=" * 50)
+        print("SECURITY AUDIT SUMMARY")
+        print("=" * 50)
+        print(f"Total Containers: {self.results['security_summary']['total_containers']}")
+        print(f"Secure Containers: {self.results['security_summary']['secure_containers']}")
+        print(f"Total Issues Found: {self.results['security_summary']['issues_found']}")
+        print(f"Detailed report saved to: {output_file}")
+
+def main():
+    checker = ContainerSecurityChecker()
+    try:
+        checker.run_security_audit()
+        checker.generate_report()
+    except Exception as e:
+        print(f"Error during security audit: {str(e)}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
+EOF
+
+# Make script executable
+chmod +x security_checker.py
+Subtask 3.2: Create Automated Security Monitoring Script
+# Create continuous monitoring script
+tee security_monitor.py > /dev/null << 'EOF'
+#!/usr/bin/env python3
+import docker
+import time
+import json
+import subprocess
+from datetime import datetime
+
+class SecurityMonitor:
+    def __init__(self, interval=60):
+        self.client = docker.from_env()
+        self.interval = interval
+        self.alerts = []
+    
+    def check_apparmor_violations(self):
+        """Check for AppArmor violations in system logs"""
+        try:
+            result = subprocess.run(
+                ['sudo', 'dmesg', '|', 'grep', 'apparmor'],
+                shell=True,
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0 and result.stdout:
+                violations = result.stdout.strip().split('\n')
+                recent_violations = [v for v in violations if 'DENIED' in v]
+                return recent_violations
+        except Exception as e:
+            print(f"Error checking AppArmor violations: {e}")
+        return []
+    
+    def check_selinux_denials(self):
+        """Check for SELinux denials"""
+        try:
+            result = subprocess.run(
+                ['sudo', 'ausearch', '-m', 'avc', '-ts', 'recent'],
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0 and result.stdout:
+                return result.stdout.strip().split('\n')
+        except Exception as e:
+            print(f"Error checking SELinux denials: {e}")
+        return []
+    
+    def monitor_containers(self):
+        """Monitor container security status"""
+        print(f"Starting security monitoring (interval: {self.interval}s)")
+        print("Press Ctrl+C to stop monitoring")
+        
+        try:
+            while True:
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                print(f"\n[{timestamp}] Security Check")
+                print("-" * 40)
+                
+                # Check running containers
+                containers = self.client.containers.list()
+                print(f"Monitoring {len(containers)} containers")
+                
+                # Check for security violations
+                apparmor_violations = self.check_apparmor_violations()
+                selinux_denials = self.check_selinux_denials()
+                
+                if apparmor_violations:
+                    print(f"⚠️  AppArmor violations detected: {len(apparmor_violations)}")
+                    for violation in apparmor_violations[-3:]:  # Show last 3
+                        print(f"   {violation}")
+                
+                if selinux_denials:
+                    print(f"⚠️  SELinux denials detected: {len(selinux_denials)}")
+                    for denial in selinux_denials[-3:]:  # Show last 3
+                        print(f"   {denial}")
+                
+                if not apparmor_violations and not selinux_denials:
+                    print("✅ No security violations detected")
+                
+                time.sleep(self.interval)
+                
+        except KeyboardInterrupt:
+            print("\nMonitoring stopped by user")
+        except Exception as e:
+            print(f"Error during monitoring: {e}")
+
+def main():
+    monitor = SecurityMonitor(interval=30)  # Check every 30 seconds
+    monitor.monitor_containers()
+
+if __name__ == "__main__":
+    main()
+EOF
+
+# Make script executable
+chmod +x security_monitor.py
+Subtask 3.3: Run Security Validation
+# Run the security checker on our containers
+python3 security_checker.py
+
+# View the generated report
+cat security_report.json | python3 -m json.tool
+
+# Test security violations (in a separate terminal if needed)
+# This will help demonstrate the monitoring capabilities
+docker run --rm -it --cap-add SYS_ADMIN ubuntu:20.04 /bin/bash -c "echo 'Testing security violation'"
+Subtask 3.4: Create Security Remediation Script
+# Create script to fix common security issues
+tee security_remediation.py > /dev/null << 'EOF'
+#!/usr/bin/env python3
+import docker
+import json
+import sys
+
+class SecurityRemediator:
+    def __init__(self):
+        self.client = docker.from_env()
+    
+    def remediate_container(self, container_name, fixes):
+        """Apply security fixes to a container"""
+        try:
+            container = self.client.containers.get(container_name)
+            
+            print(f"Remediating container: {container_name}")
+            
+            # Stop the container
+            container.stop()
+            
+            # Get current configuration
+            config = container.attrs
+            image = config['Config']['Image']
+            
+            # Build new security options
+            security_opts = []
+            
+            if 'apparmor' in fixes:
+                security_opts.append('apparmor=docker-secure')
+                print("  ✅ Added AppArmor profile")
+            
+            if 'selinux' in fixes:
+                security_opts.append('label=type:container_t')
+                print("  ✅ Added SELinux context")
+            
+            # Remove old container
+            container.remove()
+            
+            # Create new secure container
+            new_container = self.client.containers.run(
+                image,
+                name=f"{container_name}-secure",
+                security_opt=security_opts,
+                read_only=True,
+                tmpfs={'/tmp': ''},
+                cap_drop=['ALL'],
+                cap_add=['NET_BIND_SERVICE'],
+                detach=True,
+                ports={'8080/tcp': None}  # Auto-assign port
+            )
+            
+            print(f"  ✅ Created secure container: {new_container.name}")
+            return True
+            
+        except Exception as e:
+            print(f"  ❌ Error remediating {container_name}: {e}")
+            return False
+    
+    def auto_remediate(self, report_file='security_report.json'):
+        """Automatically remediate containers based on security report"""
+        try:
+            with open(report_file, 'r') as f:
+                report = json.load(f)
+            
+            print("Starting automatic remediation...")
+            print("=" * 40)
+            
+            for container_info in report['containers']:
+                if container_info['security_score'] < 80:  # Remediate if score < 80%
+                    fixes = []
+                    
+                    # Determine what fixes are needed
+                    if not container_info['security_checks']['apparmor']['passed']:
+                        fixes.append('apparmor')
+                    
+                    if not container_info['security_checks']['selinux']['passed']:
+                        fixes.append('selinux')
+                    
+                    if fixes:
+                        self.remediate_container(container_info['name'], fixes)
+                    else:
+                        print(f"No automatic fixes available for {container_info['name']}")
+                else:
+                    print(f"Container {container_info['name']} already secure (score: {container_info['security_score']:.1f}%)")
+            
+        except Exception as e:
+            print(f"Error during auto-remediation: {e}")
+
+def main():
+    remediator = SecurityRemediator()
+    
+    if len(sys.argv) > 1:
+        if sys.argv[1] == 'auto':
+            remediator.auto_remediate()
+        else:
+            # Manual remediation
+            container_name = sys.argv[1]
+            fixes = sys.argv[2:] if len(sys.argv) > 2 else ['apparmor', 'selinux']
+            remediator.remediate_container(container_name, fixes)
+    else:
+        print("Usage:")
+        print("  python3 security_remediation.py auto")
+        print("  python3 security_remediation.py <container_name> [apparmor] [selinux]")
+
+if __name__ == "__main__":
+    main()
+EOF
+
+# Make script executable
+chmod +x security_remediation.py
+Verification and Testing
+Test Security Integration
+# Run comprehensive security check
+python3 security_checker.py
+
+# Test container access restrictions
+docker exec secure-app-combined ls -la /etc/shadow 2>&1 || echo "Access denied - Security working!"
+
+# Check AppArmor enforcement
+sudo aa-status | grep docker-secure
+
+# Check SELinux contexts
+docker exec secure-app-combined id -Z
+
+# Verify network restrictions
+docker exec secure-app-combined netstat -tlnp
+Performance Impact Assessment
+# Create performance test script
+tee performance_test.py > /dev/null << 'EOF'
+#!/usr/bin/env python3
+import docker
+import time
+import requests
+import statistics
+
+def test_container_performance(container_name, port):
+    """Test container response time"""
+    url = f"http://localhost:{port}/status"
+    response_times = []
+    
+    print(f"Testing {container_name} performance...")
+    
+    for i in range(10):
+        start_time = time.time()
+        try:
+            response = requests.get(url, timeout=5)
+            end_time = time.time()
+            if response.status_code == 200:
+                response_times.append((end_time - start_time) * 1000)  # Convert to ms
+        except Exception as e:
+            print(f"Request failed: {e}")
+    
+    if response_times:
+        avg_time = statistics.mean(response_times)
+        print(f"  Average response time: {avg_time:.2f}ms")
+        return avg_time
+    else:
+        print("  No successful responses")
+        return None
+
+def main():
+    # Test different container configurations
+    containers = [
+        ('secure-app-apparmor', 8081),
+        ('secure-app-selinux', 8082),
+        ('secure-app-combined', 8083)
+    ]
+    
+    results = {}
+    for name, port in containers:
+        results[name] = test_container_performance(name, port)
+    
+    print("\nPerformance Summary:")
+    print("-" * 30)
+    for name, time_ms in results.items():
+        if time_ms:
+            print(f"{name}: {time_ms:.2f}ms")
+
+if __name__ == "__main__":
+    main()
+EOF
+
+# Install requests library and run performance test
+pip3 install requests
+python3 performance_test.py
+Troubleshooting Common Issues
+Issue 1: AppArmor Profile Not Loading
+# Check AppArmor service status
+sudo systemctl status apparmor
+
+# Reload AppArmor profiles
+sudo systemctl reload apparmor
+
+# Check profile syntax
+sudo apparmor_parser -Q /etc/apparmor.d/containers/docker-secure
+Issue 2: SELinux Context Issues
+# Check SELinux status
+sestatus
+
+# View SELinux denials
+sudo ausearch -m avc -ts recent
+
+# Temporarily set SELinux to permissive for testing
+sudo setenforce 0
+Issue 3: Container Startup Failures
+# Check Docker logs
+docker logs secure-app-combined
+
+# Inspect container configuration
+docker inspect secure-app-combined
+
+# Test without security options
+docker run --rm -it secure-app:latest /bin/bash
+Issue 4: Permission Denied Errors
+# Check file permissions
+ls -la /etc/apparmor.d/containers/
+
+# Verify user permissions
+groups $USER
+
+# Check Docker daemon permissions
+sudo usermod -aG docker $USER
+Cleanup
+# Stop and remove test containers
+docker stop secure-app-apparmor secure-app-selinux secure-app-combined
+docker rm secure-app-apparmor secure-app-selinux secure-app-combined
+
+# Remove test image
+docker rmi secure-app:latest
+
+# Clean up lab files
+cd ~
+rm -rf secure-container-lab
+
+# Optional: Remove custom AppArmor profile
+sudo rm /etc/apparmor.d/containers/docker-secure
+sudo apparmor_parser -R /etc/apparmor.d/containers/docker-secure
+Conclusion
+In this comprehensive lab, you have successfully:
+
+Mastered Container Security Integration: You learned how to implement both AppArmor and SELinux security frameworks within containerized environments, understanding their complementary roles in defense-in-depth strategies.
+
+Configured Advanced Security Policies: You created custom AppArmor profiles and SELinux policies specifically designed for container workloads, implementing principle of least privilege and mandatory access controls.
+
+Deployed Production-Ready Secure Containers: You built and deployed Docker containers with multiple layers of security including read-only filesystems, capability restrictions, non-root users, and integrated security frameworks.
+
+Automated Security Operations: You developed Python scripts for continuous security monitoring, automated vulnerability assessment, and remediation workflows that can be integrated into CI/CD pipelines.
+
+Gained Practical Security Skills: You experienced hands-on troubleshooting of security integration issues and learned performance impact assessment techniques for security-hardened containers.
+
+This lab demonstrates critical skills for the Al Razzaq Defensible Security Architect Program, showing how modern containerized applications can be secured using multiple complementary security frameworks. The automation scripts you created provide a foundation for implementing security-as-code practices in enterprise environments.
+
+The integration of AppArmor and SELinux with containers represents a mature approach to container security that goes beyond basic isolation, providing mandatory access controls and application-specific security policies that are essential for protecting sensitive workloads in production environments.
